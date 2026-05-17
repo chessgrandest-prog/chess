@@ -1,0 +1,18 @@
+name = "neonskull-chess"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+ 
+# Durable Objects — the real-time multiplayer hub
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "LobbyRoom"
+ 
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LobbyRoom"]
+ 
+# KV Namespace — persistent user accounts
+[[kv_namespaces]]
+binding = "USERS_KV"
+id = "8ad987aeda264f44b474ca5589e51143"
+ 

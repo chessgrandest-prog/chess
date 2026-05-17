@@ -1,0 +1,38 @@
+{
+  "alphatactic": {
+    "id": "jejeuzf6cmg5wnkddu3xdc",
+    "username": "AlphaTactic",
+    "passwordHash": "$2b$10$z/VHBzwMET0N862g1sdRsOZGO4kHJtM/QEmhGJ4X7g2mmzmlYAPmS",
+    "friends": [],
+    "rating": 1500,
+    "stats": {
+      "won": 0,
+      "lost": 0,
+      "drawn": 0
+    }
+  },
+  "x": {
+    "id": "wnqkfphbs2m2yvstfxgmyd",
+    "username": "X",
+    "passwordHash": "$2b$10$BVNn9FtDY5VlMEBfuRd16epx/cATJUe5OKUphzVZtTeuKll/GOq06",
+    "friends": [],
+    "rating": 1575,
+    "stats": {
+      "won": 6,
+      "lost": 1,
+      "drawn": 3
+    }
+  },
+  "z": {
+    "id": "o1fspdt2xxtzh4dt5jcg",
+    "username": "Z",
+    "passwordHash": "$2b$10$sO2J.8pzNDUI4Xw0Vvt6ruB2mcHKn008HiWs82FkHKCK87VAPACnG",
+    "friends": [],
+    "rating": 1425,
+    "stats": {
+      "won": 1,
+      "lost": 6,
+      "drawn": 3
+    }
+  }
+}
