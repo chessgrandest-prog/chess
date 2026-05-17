@@ -185,7 +185,9 @@ export class LobbyRoom {
     }
 
     const { 0: client, 1: server } = new WebSocketPair();
-    this.state.acceptWebSocket(server);
+    const socketId = uuidv4();
+    // Tag the socket with a stable ID that survives hibernation
+    this.state.acceptWebSocket(server, [socketId]);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -460,8 +462,20 @@ export class LobbyRoom {
     }
   }
 
-  async webSocketClose(ws) {
+  async webSocketClose(ws, code, reason, wasClean) {
     const socketId = this._socketId(ws);
+    if (!socketId) return;
+    const conn = this.connections.get(socketId);
+    if (conn) {
+      this.userIndex.delete(conn.user.id);
+      this.connections.delete(socketId);
+    }
+    this._broadcastOnlineStatus();
+  }
+
+  async webSocketError(ws, error) {
+    const socketId = this._socketId(ws);
+    if (!socketId) return;
     const conn = this.connections.get(socketId);
     if (conn) {
       this.userIndex.delete(conn.user.id);
@@ -475,12 +489,9 @@ export class LobbyRoom {
   // ---------------------------------------------------------------------------
 
   _socketId(ws) {
-    // Use the WebSocket object reference as a key via a WeakMap-style approach.
-    // CF Durable Objects give us hibernatable WebSockets; we tag them on first use.
-    if (!ws.__neonskullId) {
-      ws.__neonskullId = uuidv4();
-    }
-    return ws.__neonskullId;
+    // Tags are set at acceptWebSocket time and survive hibernation
+    const tags = this.state.getTags(ws);
+    return tags && tags[0] ? tags[0] : null;
   }
 
   _send(ws, type, payload) {
