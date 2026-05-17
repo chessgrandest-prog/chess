@@ -2681,7 +2681,7 @@ setTimeout(() => {
 
 // *** SET THIS TO YOUR DEPLOYED WORKER URL AFTER DEPLOYING ***
 // e.g. 'https://neonskull-chess.YOUR-SUBDOMAIN.workers.dev'
-const CF_WORKER_URL = 'https://neonskull-chess.YOUR-SUBDOMAIN.workers.dev';
+const CF_WORKER_URL = 'https://neonskull-chess.chessgrandest.workers.dev';
 
 const API_BASE = CF_WORKER_URL;
 const WS_URL   = CF_WORKER_URL.replace(/^https/, 'wss').replace(/^http/, 'ws') + '/ws';
