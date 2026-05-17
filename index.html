@@ -373,6 +373,11 @@
           <!-- Tiles will be dynamically injected here -->
         </div>
 
+        <!-- Notation review banner -->
+        <div class="notation-reviewing-banner" id="notation-reviewing-banner">
+          <i class="fa-solid fa-clock-rotate-left"></i>&nbsp; REVIEWING HISTORY — ← → to navigate
+        </div>
+
         <!-- AI Thinking Screen overlay -->
         <div class="ai-thinking-overlay" id="ai-overlay">
           <div class="cyber-spinner"></div>
@@ -425,6 +430,32 @@
       </div> <!-- End player-card -->
 
     </div> <!-- End board-section -->
+
+    <!-- Notation Sidebar Panel -->
+    <div class="notation-sidebar" id="notation-sidebar">
+      <div class="notation-sidebar-header">
+        <span class="notation-sidebar-title"><i class="fa-solid fa-list-ol"></i> MOVE LOG</span>
+        <div class="notation-nav-btns">
+          <button class="notation-nav-btn" id="notation-btn-first" onclick="notationGoTo(0)" title="First move">
+            <i class="fa-solid fa-backward-fast"></i>
+          </button>
+          <button class="notation-nav-btn" id="notation-btn-prev" onclick="notationStepBack()" title="Previous move (←)">
+            <i class="fa-solid fa-backward-step"></i>
+          </button>
+          <button class="notation-nav-btn" id="notation-btn-next" onclick="notationStepForward()" title="Next move (→)">
+            <i class="fa-solid fa-forward-step"></i>
+          </button>
+          <button class="notation-nav-btn" id="notation-btn-last" onclick="notationGoToEnd()" title="Last move">
+            <i class="fa-solid fa-forward-fast"></i>
+          </button>
+        </div>
+      </div>
+      <div class="notation-move-list" id="notation-move-list">
+        <!-- Rows injected by JS -->
+        <div class="notation-empty-state">No moves yet</div>
+      </div>
+      <div class="notation-sidebar-footer" id="notation-result-display"></div>
+    </div>
 
     <!-- NEW: Right Column for Match Controls (3rd Grid Column) -->
     <div class="controls-column" id="right-online-match-controls" style="display: none; width: 250px; flex-shrink: 0; flex-direction: column; gap: 15px; justify-content: center; padding: 40px 20px; border-left: 1px solid rgba(255, 255, 255, 0.05); background: rgba(0,0,0,0.2);">

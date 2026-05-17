@@ -1352,6 +1352,7 @@ function resetGame() {
   resetClocks();
   updateCapturedPieces();
   renderBoard();
+  notationReset();
 
   const wCard = document.getElementById('card-white');
   const bCard = document.getElementById('card-black');
@@ -1565,6 +1566,7 @@ function updateCapturedPieces() {
 // -------------------------------------------------------------------------
 function onTileClick(square) {
   if (isAITurn) return;
+  if (_notationCursor !== -1) return; // Block moves while reviewing history
 
   // Online mode: block moves when it is not our color's turn
   if (window._onlineMode && game.turn() !== window._onlineColor) return;
@@ -1590,6 +1592,7 @@ function onTileClick(square) {
 
 function onPointerDown(e) {
   if (isAITurn) return;
+  if (_notationCursor !== -1) return; // Block drag while reviewing history
   if (window._onlineMode && game.turn() !== window._onlineColor) return;
   if (e.button !== 0) return; // Only drag pieces with left-click!
   e.stopPropagation();
@@ -1844,6 +1847,7 @@ function onMoveExecuted(move) {
   }
 
   renderBoard();
+  notationOnMove(move);
 
   if (isAnalysisActive) {
     analyzePosition();
@@ -2018,9 +2022,11 @@ function checkGameStatus() {
     if (isVictory) {
       soundCtrl.play('win');
       handleGameOver("CHECKMATE // VICTORY", `Logical victory achieved. ${winnerName} won the match!`);
+      notationSetResult(winnerColor === 'w' ? '1 — 0' : '0 — 1');
     } else {
       soundCtrl.play('lose');
       handleGameOver("CHECKMATE // DEFEAT", `Opponent executed perfect checkmate. ${winnerName} won!`);
+      notationSetResult(winnerColor === 'w' ? '1 — 0' : '0 — 1');
     }
   } else if (game.in_draw()) {
     soundCtrl.play('lose');
@@ -2030,6 +2036,7 @@ function checkGameStatus() {
     else if (game.insufficient_material()) type = "Insufficient Material";
 
     handleGameOver(`DRAW // ${type.toUpperCase()}`, "The match terminated in a balanced drawn state.");
+    notationSetResult('½ — ½');
   }
 
   // If this was an online match, clean up the sender's state (the opponent gets cleaned up via game-over-notify)
@@ -3062,4 +3069,218 @@ function applyOnlineMove(move, fen) {
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('online-auth-btn');
   if (btn) btn.dataset.mode = 'login';
+});
+
+/* =========================================================================
+   NOTATION SIDEBAR — Move log, click-to-review, arrow key navigation
+   ========================================================================= */
+
+// Full move history snapshots: array of { san, fen, color, moveIndex }
+let _notationHistory = [];   // all half-moves
+let _notationCursor = -1;    // -1 = live position; 0..N = reviewing move N
+let _liveGame = null;        // backup of the live game when reviewing
+
+// Call after every move to append to the log and update the UI
+function notationOnMove(move) {
+  if (!move) return;
+  _notationHistory.push({
+    san: move.san,
+    fen: game.fen(),
+    color: move.color,          // 'w' or 'b'
+    flags: move.flags || '',
+  });
+  _notationCursor = -1;        // back to live view
+  _liveGame = null;
+  notationRender();
+  notationScrollToActive();
+}
+
+// Wipe the log (called from resetGame / new puzzle)
+function notationReset() {
+  _notationHistory = [];
+  _notationCursor = -1;
+  _liveGame = null;
+  notationRender();
+  _notationHideBanner();
+  const footer = document.getElementById('notation-result-display');
+  if (footer) footer.textContent = '';
+}
+
+// Show game result in footer
+function notationSetResult(text) {
+  const footer = document.getElementById('notation-result-display');
+  if (footer) footer.textContent = text;
+}
+
+// Jump to a specific half-move index (0-based), or -1 for live
+function notationGoTo(idx) {
+  if (_notationHistory.length === 0) return;
+  if (idx < 0) idx = 0;
+  if (idx >= _notationHistory.length) idx = _notationHistory.length - 1;
+
+  // Save live position on first review jump
+  if (_notationCursor === -1) {
+    _liveGame = game.fen();
+  }
+
+  _notationCursor = idx;
+  const snap = _notationHistory[idx];
+
+  // Reconstruct position at this point
+  const tmpGame = new Chess(snap.fen);
+  game = tmpGame;
+
+  selectedSquare = null;
+  possibleMoves = [];
+  renderBoard();
+  notationRender();
+  notationScrollToActive();
+  _notationShowBanner();
+}
+
+function notationGoToEnd() {
+  if (_notationHistory.length === 0) return;
+  if (_notationCursor === -1) return; // already live
+
+  // Restore live position
+  _notationCursor = -1;
+  if (_liveGame) {
+    game = new Chess(_liveGame);
+    _liveGame = null;
+  }
+  selectedSquare = null;
+  possibleMoves = [];
+  renderBoard();
+  notationRender();
+  notationScrollToActive();
+  _notationHideBanner();
+}
+
+function notationStepBack() {
+  if (_notationHistory.length === 0) return;
+  if (_notationCursor === -1) {
+    // Go to second-to-last move (last move is current)
+    const target = _notationHistory.length - 2;
+    if (target < 0) {
+      // Only one move played — go to start position
+      _notationGoToStart();
+    } else {
+      notationGoTo(target);
+    }
+  } else if (_notationCursor === 0) {
+    _notationGoToStart();
+  } else {
+    notationGoTo(_notationCursor - 1);
+  }
+}
+
+function notationStepForward() {
+  if (_notationHistory.length === 0) return;
+  if (_notationCursor === -1) return; // already at end
+
+  const next = _notationCursor + 1;
+  if (next >= _notationHistory.length) {
+    notationGoToEnd();
+  } else {
+    notationGoTo(next);
+  }
+}
+
+function _notationGoToStart() {
+  if (_notationCursor === -1) _liveGame = game.fen();
+  _notationCursor = -2; // sentinel for "before all moves"
+  game = new Chess(); // starting position
+  selectedSquare = null;
+  possibleMoves = [];
+  renderBoard();
+  notationRender();
+  _notationShowBanner();
+}
+
+function _notationShowBanner() {
+  const b = document.getElementById('notation-reviewing-banner');
+  if (b) b.classList.add('active');
+}
+function _notationHideBanner() {
+  const b = document.getElementById('notation-reviewing-banner');
+  if (b) b.classList.remove('active');
+}
+
+// Re-render the full move list
+function notationRender() {
+  const list = document.getElementById('notation-move-list');
+  if (!list) return;
+
+  if (_notationHistory.length === 0) {
+    list.innerHTML = '<div class="notation-empty-state">No moves yet</div>';
+    return;
+  }
+
+  // Group into pairs: [ [white, black?], ... ]
+  const rows = [];
+  for (let i = 0; i < _notationHistory.length; i += 2) {
+    rows.push([_notationHistory[i], _notationHistory[i + 1] || null]);
+  }
+
+  let html = '';
+  rows.forEach((pair, rowIdx) => {
+    const wIdx = rowIdx * 2;
+    const bIdx = rowIdx * 2 + 1;
+
+    const wActive = _notationCursor === wIdx;
+    const bActive = _notationCursor === bIdx;
+
+    // Live means last move highlight
+    const wLive = _notationCursor === -1 && wIdx === _notationHistory.length - 1 && _notationHistory.length % 2 === 1;
+    const bLive = _notationCursor === -1 && pair[1] && bIdx === _notationHistory.length - 1;
+
+    const wClass = wActive ? 'active-move' : (wLive ? 'active-move' : '');
+    const bClass = bActive ? 'active-move' : (bLive ? 'active-move' : '');
+
+    const bCell = pair[1]
+      ? `<span class="notation-cell ${bClass}" onclick="notationGoTo(${bIdx})">${_notationEscape(pair[1].san)}</span>`
+      : `<span class="notation-cell" style="opacity:0.2;">—</span>`;
+
+    html += `
+      <div class="notation-row">
+        <span class="notation-move-num">${rowIdx + 1}.</span>
+        <span class="notation-cell ${wClass}" onclick="notationGoTo(${wIdx})">${_notationEscape(pair[0].san)}</span>
+        ${bCell}
+      </div>`;
+  });
+
+  list.innerHTML = html;
+}
+
+function _notationEscape(san) {
+  return san.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function notationScrollToActive() {
+  const list = document.getElementById('notation-move-list');
+  if (!list) return;
+  const active = list.querySelector('.active-move');
+  if (active) {
+    active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+// Arrow key navigation — only when not typing in an input
+document.addEventListener('keydown', (e) => {
+  const tag = document.activeElement ? document.activeElement.tagName : '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    notationStepBack();
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    notationStepForward();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (_notationCursor !== -2) _notationGoToStart();
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    notationGoToEnd();
+  }
 });
