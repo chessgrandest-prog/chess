@@ -813,6 +813,7 @@ function renderDailyCardWidget(puzzle) {
 function initializePuzzleState(puzzle) {
   currentPuzzle = puzzle;
   puzzleStep = 0;
+  notationReset();
 
   // Clean up analysis state unless reviewing from history
   if (currentPuzzleSource !== 'history') {
@@ -839,11 +840,12 @@ function initializePuzzleState(puzzle) {
     // Execute opponent's setup move!
     const setupMoveStr = puzzle.moves[0];
     const setupUci = parseUCIMove(setupMoveStr);
-    game.move({
+    const setupMove = game.move({
       from: setupUci.from,
       to: setupUci.to,
       promotion: setupUci.promotion
     });
+    if (setupMove) notationOnMove(setupMove);
 
     currentPuzzle.solution = puzzle.moves.slice(1);
     currentPuzzle.lastMove = setupMoveStr;
@@ -942,6 +944,7 @@ function handleCorrectPuzzleMove(finishedMove) {
   }
 
   writeLog(`Sub-ply validated: <span class="move" style="color: #39ff14;">${finishedMove.san}</span> (Correct!)`);
+  notationOnMove(finishedMove);
 
   // Mark step dot as active
   const playerStepIndex = Math.floor(puzzleStep / 2);
@@ -980,6 +983,7 @@ function playPuzzleReply() {
   }
 
   writeLog(`Opponent replies: <span class="move">${finishedMove.san}</span>`);
+  notationOnMove(finishedMove);
 
   puzzleStep++; // Points to next player move
   activePlayer = game.turn();
@@ -1159,6 +1163,7 @@ function revealPuzzleSolution() {
     } else {
       soundCtrl.play('move');
     }
+    notationOnMove(finished);
 
     // Mark dots
     if (puzzleStep % 2 === 0) {
@@ -1714,6 +1719,7 @@ function executePlayerMove(moveDetails) {
           soundCtrl.play('move');
         }
         renderBoard();
+        notationOnMove(finishedMove);
 
         // Standard analysis log output with recommended path
         const playerStepIndex = Math.floor(puzzleStep / 2);
