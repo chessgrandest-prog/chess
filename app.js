@@ -1590,7 +1590,15 @@ function onTileClick(square) {
     return;
   }
 
-  if (piece && piece.color === game.turn()) {
+  // While reviewing history, allow picking up either color's pieces
+  // (online mode still locked to your own color via the guard above)
+  const canSelectPiece = piece && (
+    _isReviewing() && !window._onlineMode
+      ? true
+      : piece.color === game.turn()
+  );
+
+  if (canSelectPiece) {
     selectedSquare = square;
     possibleMoves = game.moves({ square: square, verbose: true });
     renderBoard();
@@ -1612,7 +1620,13 @@ function onPointerDown(e) {
   const square = pieceContainer.dataset.square;
   const piece = game.get(square);
 
-  if (piece && piece.color === game.turn()) {
+  const canDragPiece = piece && (
+    _isReviewing() && !window._onlineMode
+      ? true
+      : piece.color === game.turn()
+  );
+
+  if (canDragPiece) {
     isDragging = true;
     dragStartSquare = square;
 
@@ -2736,7 +2750,6 @@ function onlineConnect() {
     writeLog('>> Cybernet socket connected.');
     if (onlineUser) {
       socket.emit('register-active-user', onlineUser);
-      socket.emit('get-online-users');
     }
   };
 
@@ -2923,6 +2936,7 @@ async function onlineAuth() {
     // Logged in!
     onlineUser = data.user;
     onlineConnect();
+    socket.emit('register-active-user', onlineUser);
     renderLobby();
     writeLog(`>> Logged in as ${onlineUser.username} (ELO ${onlineUser.rating})`);
 
@@ -2940,6 +2954,7 @@ function renderLobby() {
   document.getElementById('stat-online-won').textContent = onlineUser.stats?.won ?? 0;
   document.getElementById('stat-online-lost').textContent = onlineUser.stats?.lost ?? 0;
   document.getElementById('stat-online-drawn').textContent = onlineUser.stats?.drawn ?? 0;
+  socket.emit('get-online-users');
 }
 
 function renderOnlinePlayers(users) {
@@ -3098,6 +3113,7 @@ let _notationInBranch = -1;   // which branch we're in (-1 = main line)
 let _notationBranchPoint = -1;// main-line index where we branched off
 let _notationBranchCursor = -1;// position within current branch
 let _liveGame = null;         // FEN backup of the real live game
+let _liveActivePlayer = null; // whose clock was running before review
 
 // Ensure banner is hidden on load
 document.addEventListener('DOMContentLoaded', () => {
@@ -3167,6 +3183,10 @@ function notationGoTo(idx) {
 
   if (_notationCursor === -1 && _notationInBranch === -1) {
     _liveGame = game.fen(); // save live position first time
+    _liveActivePlayer = activePlayer; // save whose clock was running
+    // Pause the clock while reviewing
+    clearInterval(timerInterval);
+    timerInterval = null;
   }
 
   _notationCursor = idx;
@@ -3196,6 +3216,16 @@ function notationGoToEnd() {
     game = new Chess(_liveGame);
     _liveGame = null;
   }
+  // Restore whose clock should be ticking and resume it
+  if (_liveActivePlayer !== null) {
+    activePlayer = _liveActivePlayer;
+    _liveActivePlayer = null;
+  }
+  const wCard2 = document.getElementById('card-white');
+  const bCard2 = document.getElementById('card-black');
+  if (wCard2) wCard2.classList.toggle('active', activePlayer === 'w');
+  if (bCard2) bCard2.classList.toggle('active', activePlayer === 'b');
+  startTimer();
   selectedSquare = null;
   possibleMoves = [];
   renderBoard();
