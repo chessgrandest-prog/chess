@@ -292,7 +292,7 @@ export default {
       if (!authHeader) {
         return jsonResponse({ error: 'Authorization required' }, 401);
       }
-      const { username } = await request.json();
+      const username = url.searchParams.get('username');
       if (!username) {
         return jsonResponse({ error: 'Username required' }, 400);
       }
