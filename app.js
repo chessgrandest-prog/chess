@@ -3542,7 +3542,6 @@ function uploadProfilePicture(input) {
   reader.readAsDataURL(file);
   input.value = '';
 }
-});
 
 // =========================================================================
 // NOTATION HISTORY FUNCTIONS
