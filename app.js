@@ -3100,8 +3100,7 @@ let friendsSocket = null;
 function connectFriendsSocket() {
   if (friendsSocket) return;
   
-  const wsUrl = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws';
-  friendsSocket = new WebSocket(wsUrl);
+  friendsSocket = new WebSocket(WS_URL);
   
   friendsSocket.onopen = () => {
     if (profileUser) {
@@ -3208,7 +3207,7 @@ async function profileAuth() {
     return;
   }
   
-  const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
+  const endpoint = mode === 'login' ? API_BASE + '/api/auth/login' : API_BASE + '/api/auth/register';
   
   try {
     const res = await fetch(endpoint, {
@@ -3296,13 +3295,11 @@ async function loadProfileData() {
   
   // Fetch game history from server
   try {
-    const res = await fetch('/api/game/history', {
+    const res = await fetch(API_BASE + '/api/game/history?username=' + encodeURIComponent(profileUser.username), {
       method: 'GET',
       headers: { 
-        'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + profileUser.username
-      },
-      body: JSON.stringify({ username: profileUser.username })
+      }
     });
     if (res.ok) {
       const data = await res.json();
@@ -3520,7 +3517,7 @@ function uploadProfilePicture(input) {
     }
     
     try {
-      const res = await fetch('/api/profile/picture', {
+      const res = await fetch(API_BASE + '/api/profile/picture', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: profileUser.username, picture })
