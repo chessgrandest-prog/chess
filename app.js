@@ -2736,6 +2736,7 @@ function onlineConnect() {
     writeLog('>> Cybernet socket connected.');
     if (onlineUser) {
       socket.emit('register-active-user', onlineUser);
+      socket.emit('get-online-users');
     }
   };
 
@@ -2922,7 +2923,6 @@ async function onlineAuth() {
     // Logged in!
     onlineUser = data.user;
     onlineConnect();
-    socket.emit('register-active-user', onlineUser);
     renderLobby();
     writeLog(`>> Logged in as ${onlineUser.username} (ELO ${onlineUser.rating})`);
 
@@ -2940,7 +2940,6 @@ function renderLobby() {
   document.getElementById('stat-online-won').textContent = onlineUser.stats?.won ?? 0;
   document.getElementById('stat-online-lost').textContent = onlineUser.stats?.lost ?? 0;
   document.getElementById('stat-online-drawn').textContent = onlineUser.stats?.drawn ?? 0;
-  socket.emit('get-online-users');
 }
 
 function renderOnlinePlayers(users) {
