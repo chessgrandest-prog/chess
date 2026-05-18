@@ -380,6 +380,13 @@ let particles = [];
 const canvas = document.getElementById('particles-canvas');
 const ctxCanvas = canvas.getContext('2d');
 
+// -------------------------------------------------------------------------
+// NOTATION HISTORY TRACKING
+// -------------------------------------------------------------------------
+let notationHistory = [];
+let currentNotationIndex = -1;
+let isReviewingHistory = false;
+
 // On load hooks
 window.addEventListener('load', () => {
   initParticles();
@@ -1325,6 +1332,12 @@ function resetGame() {
   activePlayer = 'w';
   boardFlipped = false;
   
+  // Clear notation history
+  notationHistory = [];
+  currentNotationIndex = -1;
+  isReviewingHistory = false;
+  updateNotation();
+  
   const boardEl = document.getElementById('board');
   if (boardEl) boardEl.classList.remove('flipped');
   const cBlack = document.getElementById('card-black');
@@ -1844,6 +1857,9 @@ function onMoveExecuted(move) {
   }
 
   renderBoard();
+  
+  // Update notation after each move
+  updateNotation();
 
   if (isAnalysisActive) {
     analyzePosition();
@@ -3062,4 +3078,193 @@ function applyOnlineMove(move, fen) {
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('online-auth-btn');
   if (btn) btn.dataset.mode = 'login';
+});
+
+// =========================================================================
+// NOTATION HISTORY FUNCTIONS
+// =========================================================================
+
+function updateNotation() {
+  const history = game.history({ verbose: true });
+  notationHistory = history;
+  
+  // If we're not reviewing, always stay at the latest move
+  if (!isReviewingHistory) {
+    currentNotationIndex = history.length - 1;
+  }
+  
+  renderNotation();
+  updateReviewBanner();
+}
+
+function renderNotation() {
+  const moveList = document.getElementById('notation-move-list');
+  if (!moveList) return;
+  
+  const history = notationHistory;
+  
+  if (history.length === 0) {
+    moveList.innerHTML = '<div class="notation-empty-state">No moves yet</div>';
+    document.getElementById('notation-result-display').innerHTML = '';
+    return;
+  }
+  
+  let html = '';
+  
+  // Group moves in pairs (white + black)
+  for (let i = 0; i < history.length; i += 2) {
+    const moveNum = Math.floor(i / 2) + 1;
+    const whiteMove = history[i];
+    const blackMove = history[i + 1];
+    
+    html += `<div class="notation-row ${i === currentNotationIndex || (i + 1) === currentNotationIndex ? 'current' : ''}">`;
+    html += `<div class="notation-move-num">${moveNum}.</div>`;
+    
+    // White move
+    if (whiteMove) {
+      const isActive = i === currentNotationIndex;
+      html += `<div class="notation-move ${isActive ? 'active' : ''}" onclick="notationGoTo(${i})">${whiteMove.san}</div>`;
+    } else {
+      html += `<div class="notation-move empty"></div>`;
+    }
+    
+    // Black move
+    if (blackMove) {
+      const isActive = (i + 1) === currentNotationIndex;
+      html += `<div class="notation-move ${isActive ? 'active' : ''}" onclick="notationGoTo(${i + 1})">${blackMove.san}</div>`;
+    } else {
+      html += `<div class="notation-move empty"></div>`;
+    }
+    
+    html += '</div>';
+  }
+  
+  moveList.innerHTML = html;
+  
+  // Scroll to current move
+  const currentRow = moveList.querySelector('.notation-row.current');
+  if (currentRow) {
+    currentRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  
+  // Update result display
+  updateResultDisplay();
+}
+
+function updateResultDisplay() {
+  const resultDisplay = document.getElementById('notation-result-display');
+  if (!resultDisplay) return;
+  
+  if (game.game_over()) {
+    let resultText = '';
+    let resultClass = '';
+    
+    if (game.in_checkmate()) {
+      const winner = game.turn() === 'w' ? 'Black' : 'White';
+      resultText = `${winner} wins by checkmate`;
+      resultClass = 'checkmate';
+    } else if (game.in_draw()) {
+      if (game.in_stalemate()) {
+        resultText = 'Draw by stalemate';
+        resultClass = 'stalemate';
+      } else if (game.in_threefold_repetition()) {
+        resultText = 'Draw by repetition';
+        resultClass = 'draw';
+      } else if (game.insufficient_material()) {
+        resultText = 'Draw by insufficient material';
+        resultClass = 'draw';
+      } else {
+        resultText = 'Draw';
+        resultClass = 'draw';
+      }
+    }
+    
+    resultDisplay.innerHTML = `<div class="notation-result ${resultClass}">${resultText}</div>`;
+  } else {
+    resultDisplay.innerHTML = '';
+  }
+}
+
+function notationGoTo(index) {
+  if (index < -1 || index >= notationHistory.length) return;
+  
+  // Create a new game instance and replay moves up to index
+  const tempGame = new Chess();
+  
+  for (let i = 0; i <= index; i++) {
+    const move = notationHistory[i];
+    tempGame.move(move);
+  }
+  
+  // Replace the current game with the temp game
+  game = tempGame;
+  currentNotationIndex = index;
+  isReviewingHistory = (index < notationHistory.length - 1);
+  
+  renderBoard();
+  renderNotation();
+  updateReviewBanner();
+  
+  // Update clocks display based on whose turn it is
+  activePlayer = game.turn();
+  updateClockDisplay();
+}
+
+function notationStepBack() {
+  if (currentNotationIndex < 0) return;
+  notationGoTo(currentNotationIndex - 1);
+}
+
+function notationStepForward() {
+  if (currentNotationIndex >= notationHistory.length - 1) {
+    // If at the end, exit review mode
+    notationGoToEnd();
+    return;
+  }
+  notationGoTo(currentNotationIndex + 1);
+}
+
+function notationGoToEnd() {
+  // Replay all moves to get to the latest state
+  const tempGame = new Chess();
+  
+  for (const move of notationHistory) {
+    tempGame.move(move);
+  }
+  
+  game = tempGame;
+  currentNotationIndex = notationHistory.length - 1;
+  isReviewingHistory = false;
+  
+  renderBoard();
+  renderNotation();
+  updateReviewBanner();
+  
+  activePlayer = game.turn();
+  updateClockDisplay();
+}
+
+function updateReviewBanner() {
+  const banner = document.getElementById('notation-reviewing-banner');
+  if (!banner) return;
+  
+  if (isReviewingHistory) {
+    banner.classList.add('active');
+  } else {
+    banner.classList.remove('active');
+  }
+}
+
+// Keyboard navigation for notation
+document.addEventListener('keydown', (e) => {
+  // Only navigate if not in an input field
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  
+  if (e.key === 'ArrowLeft') {
+    notationStepBack();
+    e.preventDefault();
+  } else if (e.key === 'ArrowRight') {
+    notationStepForward();
+    e.preventDefault();
+  }
 });
