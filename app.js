@@ -1866,7 +1866,8 @@ function onMoveExecuted(move) {
   }
 
   // Emit move to online opponent before checking game over
-  if (window._onlineMode && onlineGameId) {
+  // Skip if this is a received move to avoid echoing it back
+  if (window._onlineMode && onlineGameId && !window._isReceivingOnlineMove) {
     onlineEmitMove({ from: move.from, to: move.to, promotion: move.promotion || null }, game.fen());
   }
 

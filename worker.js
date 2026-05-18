@@ -325,6 +325,36 @@ export class LobbyRoom {
     this.userIndex = new Map();
     // gameId -> gameDetails
     this.activeGames = new Map();
+    this._recovered = false;
+  }
+
+  // Rebuild in-memory maps after hibernation by reading durable storage
+  async _recoverState() {
+    if (this._recovered) return;
+    this._recovered = true;
+
+    const webSockets = this.state.getWebSockets();
+    for (const ws of webSockets) {
+      const tags = this.state.getTags(ws);
+      if (!tags || !tags[0]) continue;
+      const socketId = tags[0];
+      if (this.connections.has(socketId)) continue;
+
+      const stored = await this.state.storage.get('conn:' + socketId);
+      if (stored) {
+        const user = JSON.parse(stored);
+        this.connections.set(socketId, { ws, user });
+        this.userIndex.set(user.id, socketId);
+      }
+    }
+
+    const gameKeys = await this.state.storage.list({ prefix: 'game:' });
+    for (const [key, value] of gameKeys) {
+      const gameId = key.slice(5);
+      if (!this.activeGames.has(gameId)) {
+        this.activeGames.set(gameId, JSON.parse(value));
+      }
+    }
   }
 
   // Every WebSocket connection arrives here as a normal fetch()
@@ -343,6 +373,8 @@ export class LobbyRoom {
 
   // Called by the runtime for every incoming WebSocket message
   async webSocketMessage(ws, rawMessage) {
+    await this._recoverState();
+
     let msg;
     try { msg = JSON.parse(rawMessage); } catch { return; }
 
@@ -356,6 +388,7 @@ export class LobbyRoom {
         if (!user || !user.id) return;
         this.connections.set(socketId, { ws, user });
         this.userIndex.set(user.id, socketId);
+        await this.state.storage.put('conn:' + socketId, JSON.stringify(user));
         this._broadcastOnlineStatus();
         break;
       }
@@ -784,6 +817,7 @@ export class LobbyRoom {
           moves: []
         };
         this.activeGames.set(gameId, gameDetails);
+        await this.state.storage.put('game:' + gameId, JSON.stringify(gameDetails));
 
         this._send(ws, 'game-started', {
           gameId,
@@ -827,6 +861,7 @@ export class LobbyRoom {
         if (!conn) return;
 
         game.moves.push(move);
+        await this.state.storage.put('game:' + gameId, JSON.stringify(game));
         const sender = conn.user;
         const opponentId = game.players.white === sender.id ? game.players.black : game.players.white;
         const opponentSocketId = this.userIndex.get(opponentId);
@@ -854,6 +889,7 @@ export class LobbyRoom {
 
         await this._updateGameStats(game, winnerId);
         this.activeGames.delete(gameId);
+        await this.state.storage.delete('game:' + gameId);
         break;
       }
 
@@ -877,6 +913,7 @@ export class LobbyRoom {
 
         await this._updateGameStats(game, winnerId);
         this.activeGames.delete(gameId);
+        await this.state.storage.delete('game:' + gameId);
         break;
       }
 
@@ -913,12 +950,14 @@ export class LobbyRoom {
 
         await this._updateGameStats(game, null);
         this.activeGames.delete(gameId);
+        await this.state.storage.delete('game:' + gameId);
         break;
       }
     }
   }
 
   async webSocketClose(ws, code, reason, wasClean) {
+    await this._recoverState();
     const socketId = this._socketId(ws);
     if (!socketId) return;
     const conn = this.connections.get(socketId);
@@ -926,10 +965,12 @@ export class LobbyRoom {
       this.userIndex.delete(conn.user.id);
       this.connections.delete(socketId);
     }
+    await this.state.storage.delete('conn:' + socketId);
     this._broadcastOnlineStatus();
   }
 
   async webSocketError(ws, error) {
+    await this._recoverState();
     const socketId = this._socketId(ws);
     if (!socketId) return;
     const conn = this.connections.get(socketId);
@@ -937,6 +978,7 @@ export class LobbyRoom {
       this.userIndex.delete(conn.user.id);
       this.connections.delete(socketId);
     }
+    await this.state.storage.delete('conn:' + socketId);
     this._broadcastOnlineStatus();
   }
 
