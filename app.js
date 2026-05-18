@@ -3078,6 +3078,470 @@ function applyOnlineMove(move, fen) {
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('online-auth-btn');
   if (btn) btn.dataset.mode = 'login';
+
+  // Initialize profile auth button
+  const profileBtn = document.getElementById('profile-auth-btn');
+  if (profileBtn) profileBtn.dataset.mode = 'login';
+});
+
+// ============================================
+// PROFILE FUNCTIONS
+// ============================================
+
+// Current profile user state
+let profileUser = null;
+let profileFriends = [];
+let profileGameHistory = [];
+let profileIncomingRequests = [];
+let onlineUsersList = [];
+let friendsSocket = null;
+
+// Connect to WebSocket for friends
+function connectFriendsSocket() {
+  if (friendsSocket) return;
+  
+  const wsUrl = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws';
+  friendsSocket = new WebSocket(wsUrl);
+  
+  friendsSocket.onopen = () => {
+    if (profileUser) {
+      friendsSocket.send(JSON.stringify({
+        type: 'register-active-user',
+        payload: profileUser
+      }));
+    }
+  };
+  
+  friendsSocket.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    handleFriendsMessage(msg.type, msg.payload);
+  };
+  
+  friendsSocket.onclose = () => {
+    friendsSocket = null;
+    // Reconnect after delay
+    setTimeout(connectFriendsSocket, 3000);
+  };
+}
+
+function handleFriendsMessage(type, payload) {
+  switch (type) {
+    case 'online-users-list':
+      onlineUsersList = payload || [];
+      updateFriendsOnlineStatus();
+      break;
+    case 'friends-list':
+      profileFriends = payload?.friends || [];
+      renderProfileFriendsList();
+      break;
+    case 'friend-requests-list':
+      profileIncomingRequests = payload?.incoming || [];
+      renderFriendRequests();
+      break;
+    case 'friend-added-success':
+    case 'friend-request-accepted':
+      loadProfileData();
+      break;
+    case 'friend-request-sent':
+      showNotification('Friend request sent to ' + payload.targetUsername + '!', 'success');
+      loadProfileData();
+      break;
+    case 'friend-removed':
+      showNotification(payload.message, 'info');
+      loadProfileData();
+      break;
+    case 'incoming-friend-request':
+      profileIncomingRequests.push(payload);
+      renderFriendRequests();
+      showNotification(payload.username + ' sent you a friend request!', 'info');
+      break;
+    case 'friend-added-notify':
+      if (profileUser) {
+        profileUser.friends = payload.friends;
+      }
+      loadProfileData();
+      showNotification(payload.friendName + ' accepted your friend request!', 'success');
+      break;
+    case 'notification':
+      showNotification(payload.message, payload.type);
+      break;
+    case 'stats-updated':
+      if (profileUser) {
+        profileUser.rating = payload.rating;
+        profileUser.stats = payload.stats;
+        updateProfileDisplay();
+      }
+      break;
+  }
+}
+
+function updateFriendsOnlineStatus() {
+  // Update online status indicators in friends list
+  const friendCards = document.querySelectorAll('.friend-card');
+  friendCards.forEach(card => {
+    const userId = card.dataset.userId;
+    const statusDot = card.querySelector('.friend-status-dot');
+    if (statusDot) {
+      const isOnline = onlineUsersList.some(u => u.id === userId);
+      statusDot.style.background = isOnline ? '#00ff88' : '#666';
+      statusDot.style.boxShadow = isOnline ? '0 0 6px #00ff88' : 'none';
+    }
+  });
+}
+
+// Profile auth tab switching
+function profileShowAuthTab(tab) {
+  document.getElementById('profile-auth-tab-login').classList.toggle('active', tab === 'login');
+  document.getElementById('profile-auth-tab-register').classList.toggle('active', tab === 'register');
+  document.getElementById('profile-auth-label').textContent = tab.toUpperCase();
+  document.getElementById('profile-auth-btn').dataset.mode = tab;
+}
+
+// Profile auth (login/register)
+async function profileAuth() {
+  const username = document.getElementById('profile-username').value.trim();
+  const password = document.getElementById('profile-password').value;
+  const mode = document.getElementById('profile-auth-btn').dataset.mode;
+  
+  if (!username || !password) {
+    showProfileError('Username and password required');
+    return;
+  }
+  
+  const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
+  
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    
+    if (!res.ok) {
+      showProfileError(data.error);
+      return;
+    }
+    
+    if (mode === 'register') {
+      // Switch to login after register
+      profileShowAuthTab('login');
+      showNotification('Account created! Please log in.', 'success');
+      return;
+    }
+    
+    // Login successful
+    profileUser = data.user;
+    window._profileMode = true;
+    showProfileView(true);
+    connectFriendsSocket();
+    loadProfileData();
+    writeLog('>> Profile loaded for ' + username);
+    
+  } catch (e) {
+    showProfileError('Connection error');
+  }
+}
+
+function showProfileError(msg) {
+  const el = document.getElementById('profile-auth-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function showProfileView(loggedIn) {
+  document.getElementById('profile-auth-view').style.display = loggedIn ? 'none' : 'block';
+  document.getElementById('profile-lobby-view').style.display = loggedIn ? 'block' : 'none';
+}
+
+function showNotification(msg, type = 'info') {
+  // Reuse existing notification or create new one
+  let notif = document.getElementById('profile-notification');
+  if (!notif) {
+    notif = document.createElement('div');
+    notif.id = 'profile-notification';
+    notif.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 12px 20px; background: rgba(0,0,0,0.9); border: 1px solid var(--color-accent); border-radius: 8px; z-index: 1000; font-size: 0.8rem;';
+    document.body.appendChild(notif);
+  }
+  notif.textContent = msg;
+  notif.style.borderColor = type === 'success' ? '#00ff88' : type === 'error' ? '#ff4466' : 'var(--color-accent)';
+  notif.style.display = 'block';
+  setTimeout(() => { notif.style.display = 'none'; }, 3000);
+}
+
+function profileLogout() {
+  if (friendsSocket) {
+    friendsSocket.close();
+    friendsSocket = null;
+  }
+  profileUser = null;
+  profileFriends = [];
+  profileGameHistory = [];
+  profileIncomingRequests = [];
+  window._profileMode = false;
+  showProfileView(false);
+  document.getElementById('profile-username').value = '';
+  document.getElementById('profile-password').value = '';
+  writeLog('>> Profile logged out.');
+}
+
+async function loadProfileData() {
+  if (!profileUser) return;
+  
+  // Request friends list
+  if (friendsSocket && friendsSocket.readyState === WebSocket.OPEN) {
+    friendsSocket.send(JSON.stringify({ type: 'get-friends-list' }));
+    friendsSocket.send(JSON.stringify({ type: 'get-friend-requests' }));
+  }
+  
+  // Fetch game history from server
+  try {
+    const res = await fetch('/api/game/history', {
+      method: 'GET',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + profileUser.username
+      },
+      body: JSON.stringify({ username: profileUser.username })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      profileGameHistory = data.gameHistory || [];
+      renderProfileHistoryList();
+    }
+  } catch (e) {
+    console.error('Error loading game history:', e);
+  }
+  
+  updateProfileDisplay();
+}
+
+function updateProfileDisplay() {
+  if (!profileUser) return;
+  
+  document.getElementById('profile-username-display').textContent = profileUser.username;
+  document.getElementById('profile-rating-display').textContent = profileUser.rating;
+  document.getElementById('profile-stat-won').textContent = profileUser.stats?.won || 0;
+  document.getElementById('profile-stat-lost').textContent = profileUser.stats?.lost || 0;
+  document.getElementById('profile-stat-drawn').textContent = profileUser.stats?.drawn || 0;
+  
+  // Profile picture
+  if (profileUser.profilePicture) {
+    const img = document.getElementById('profile-avatar-img');
+    img.src = profileUser.profilePicture;
+    img.style.display = 'block';
+    img.nextElementSibling.style.display = 'none';
+  }
+}
+
+function profileShowSubTab(tab) {
+  document.getElementById('profile-tab-friends').classList.toggle('active', tab === 'friends');
+  document.getElementById('profile-tab-history').classList.toggle('active', tab === 'history');
+  document.getElementById('profile-friends-section').style.display = tab === 'friends' ? 'block' : 'none';
+  document.getElementById('profile-history-section').style.display = tab === 'history' ? 'block' : 'none';
+}
+
+function renderProfileFriendsList() {
+  const container = document.getElementById('profile-friends-list');
+  container.innerHTML = '';
+  
+  if (profileFriends.length === 0) {
+    container.innerHTML = '<div style="font-size: 0.75rem; color: var(--color-text-secondary); padding: 10px; text-align: center;">No friends yet. Add someone!</div>';
+    return;
+  }
+  
+  profileFriends.forEach(friend => {
+    const isOnline = onlineUsersList.some(u => u.id === friend.id);
+    const card = document.createElement('div');
+    card.className = 'friend-card';
+    card.dataset.userId = friend.id;
+    card.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; cursor: pointer;';
+    card.innerHTML = `
+      <div class="friend-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: ${isOnline ? '#00ff88' : '#666'}; box-shadow: ${isOnline ? '0 0 6px #00ff88' : 'none'};"></div>
+      <div style="flex: 1;">
+        <div style="font-size: 0.8rem; font-weight: bold;">${friend.username}</div>
+        <div style="font-size: 0.65rem; color: var(--color-accent-alt);">⚡ ${friend.rating}</div>
+      </div>
+      <button class="btn-cyber active" style="padding: 4px 8px; font-size: 0.6rem;" onclick="event.stopPropagation(); challengeFriend('${friend.id}')">CHALLENGE</button>
+      <button class="btn-cyber" style="padding: 4px 8px; font-size: 0.6rem;" onclick="event.stopPropagation(); removeFriend('${friend.id}')"><i class="fa-solid fa-user-minus"></i></button>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function renderFriendRequests() {
+  const container = document.getElementById('friend-requests-list');
+  const wrapper = document.getElementById('friend-requests-container');
+  
+  if (profileIncomingRequests.length === 0) {
+    wrapper.style.display = 'none';
+    return;
+  }
+  
+  wrapper.style.display = 'block';
+  container.innerHTML = '';
+  
+  profileIncomingRequests.forEach(req => {
+    const el = document.createElement('div');
+    el.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255,0,127,0.08); border: 1px solid rgba(255,0,127,0.3); border-radius: 8px;';
+    el.innerHTML = `
+      <div style="flex: 1;">
+        <div style="font-size: 0.8rem; font-weight: bold;">${req.username}</div>
+        <div style="font-size: 0.65rem; color: var(--color-accent-alt);">⚡ ELO: ${req.rating || 1500}</div>
+      </div>
+      <button class="btn-cyber active" style="padding: 4px 8px; font-size: 0.6rem;" onclick="acceptFriendRequest('${req.userId}')"><i class="fa-solid fa-check"></i></button>
+      <button class="btn-cyber" style="padding: 4px 8px; font-size: 0.6rem;" onclick="declineFriendRequest('${req.userId}')"><i class="fa-solid fa-xmark"></i></button>
+    `;
+    container.appendChild(el);
+  });
+}
+
+function renderProfileHistoryList() {
+  const container = document.getElementById('profile-history-list');
+  container.innerHTML = '';
+  
+  if (profileGameHistory.length === 0) {
+    container.innerHTML = '<div style="font-size: 0.75rem; color: var(--color-text-secondary); padding: 10px; text-align: center;">No games played yet.</div>';
+    return;
+  }
+  
+  profileGameHistory.forEach(game => {
+    const resultColor = game.result === 'win' ? '#00ff88' : game.result === 'loss' ? '#ff4466' : 'var(--color-accent-alt)';
+    const date = new Date(game.timestamp).toLocaleDateString();
+    const el = document.createElement('div');
+    el.style.cssText = 'padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; cursor: pointer;';
+    el.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-size: 0.8rem; font-weight: bold;">vs ${game.opponent?.username || 'AI'}</div>
+          <div style="font-size: 0.65rem; color: var(--color-text-secondary);">${game.type?.toUpperCase() || 'PVP'} · ${date}</div>
+        </div>
+        <div style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem; color: ${resultColor};">${game.result?.toUpperCase() || '?'}</div>
+      </div>
+    `;
+    el.onclick = () => showProfileGameDetail(game);
+    container.appendChild(el);
+  });
+}
+
+function showProfileGameDetail(game) {
+  const modal = document.getElementById('profile-game-detail');
+  const content = document.getElementById('profile-game-detail-content');
+  
+  const resultColor = game.result === 'win' ? '#00ff88' : game.result === 'loss' ? '#ff4466' : 'var(--color-accent-alt)';
+  const date = new Date(game.timestamp).toLocaleString();
+  
+  content.innerHTML = `
+    <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; text-align: center;">
+      <div style="font-family: 'Orbitron', sans-serif; font-size: 1.2rem; color: ${resultColor}; margin-bottom: 8px;">${game.result?.toUpperCase() || '?'}</div>
+      <div style="font-size: 0.8rem; color: var(--color-text-secondary);">vs ${game.opponent?.username || 'AI'} (${game.type?.toUpperCase() || 'PVP'})</div>
+      <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-top: 4px;">${date}</div>
+    </div>
+    <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px;">
+      <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 8px;">MOVES: ${game.moves?.length || 0}</div>
+      <div style="font-size: 0.7rem; font-family: monospace; color: var(--color-accent-alt); max-height: 150px; overflow-y: auto;">${(game.moves || []).map(m => m.san).join(' ')}</div>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn-cyber active" onclick="closeProfileGameDetail()" style="flex: 1; justify-content: center;">CLOSE</button>
+    </div>
+  `;
+  
+  modal.style.display = 'block';
+}
+
+function closeProfileGameDetail() {
+  document.getElementById('profile-game-detail').style.display = 'none';
+}
+
+// Send friend request
+function sendFriendRequest() {
+  const username = document.getElementById('add-friend-input').value.trim();
+  if (!username) {
+    showNotification('Enter a username', 'error');
+    return;
+  }
+  if (!friendsSocket || friendsSocket.readyState !== WebSocket.OPEN) {
+    showNotification('Connecting... please try again', 'error');
+    return;
+  }
+  friendsSocket.send(JSON.stringify({ type: 'send-friend-request', payload: { targetUsername: username } }));
+  document.getElementById('add-friend-input').value = '';
+}
+
+// Accept friend request
+function acceptFriendRequest(userId) {
+  if (!friendsSocket || friendsSocket.readyState !== WebSocket.OPEN) return;
+  friendsSocket.send(JSON.stringify({ type: 'accept-friend-request', payload: { userId } }));
+}
+
+// Decline friend request  
+function declineFriendRequest(userId) {
+  if (!friendsSocket || friendsSocket.readyState !== WebSocket.OPEN) return;
+  friendsSocket.send(JSON.stringify({ type: 'decline-friend-request', payload: { userId } }));
+}
+
+// Remove friend
+function removeFriend(userId) {
+  if (!friendsSocket || friendsSocket.readyState !== WebSocket.OPEN) return;
+  if (confirm('Remove this friend?')) {
+    friendsSocket.send(JSON.stringify({ type: 'remove-friend', payload: { userId } }));
+  }
+}
+
+// Challenge friend to game
+function challengeFriend(userId) {
+  if (!profileUser) return;
+  // Switch to online and trigger challenge
+  showNotification('Switching to Online to challenge friend...', 'info');
+  selectGameModeTab('online');
+  // Wait for online socket then send challenge
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'send-challenge', payload: { targetUserId: userId, timerDuration: 600 } }));
+  }
+}
+
+// Upload profile picture
+function uploadProfilePicture(input) {
+  const file = input.files[0];
+  if (!file) return;
+  
+  const maxSize = 500 * 1024; // 500KB
+  if (file.size > maxSize) {
+    showNotification('Image too large. Max 500KB.', 'error');
+    return;
+  }
+  
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const picture = e.target.result;
+    if (!picture.match(/^data:image\/(jpeg|png|gif|webp);base64,/)) {
+      showNotification('Invalid format. Use jpeg, png, gif, or webp.', 'error');
+      return;
+    }
+    
+    try {
+      const res = await fetch('/api/profile/picture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: profileUser.username, picture })
+      });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        showNotification(data.error, 'error');
+        return;
+      }
+      
+      profileUser.profilePicture = picture;
+      updateProfileDisplay();
+      showNotification('Profile picture updated!', 'success');
+    } catch (err) {
+      showNotification('Error uploading picture', 'error');
+    }
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
 });
 
 // =========================================================================

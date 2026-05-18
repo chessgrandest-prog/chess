@@ -120,6 +120,11 @@ export default {
         username: username.trim(),
         passwordHash,
         friends: [],
+        profilePicture: null,
+        gameHistory: [],
+        friendRequests: [],
+        outgoingRequests: [],
+        lastSeen: Date.now(),
         rating: 1500,
         stats: { won: 0, lost: 0, drawn: 0 }
       };
@@ -150,9 +155,154 @@ export default {
           username: user.username,
           rating: user.rating,
           friends: user.friends,
+          profilePicture: user.profilePicture,
+          gameHistory: user.gameHistory,
+          friendRequests: user.friendRequests,
+          outgoingRequests: user.outgoingRequests,
+          lastSeen: user.lastSeen,
           stats: user.stats
         }
       });
+    }
+
+    // --- REST: Profile Picture Upload ---
+    if (url.pathname === '/api/profile/picture' && request.method === 'POST') {
+      const authHeader = request.headers.get('Authorization');
+      if (!authHeader) {
+        return jsonResponse({ error: 'Authorization required' }, 401);
+      }
+      const token = authHeader.replace('Bearer ', '');
+      const { username, picture } = await request.json();
+      if (!username || !picture) {
+        return jsonResponse({ error: 'Username and picture required' }, 400);
+      }
+      // Validate image size (max 500KB)
+      if (picture.length > 500 * 1024) {
+        return jsonResponse({ error: 'Image too large. Max 500KB allowed.' }, 400);
+      }
+      // Validate format (basic check for data URL)
+      if (!picture.match(/^data:image\/(jpeg|png|gif|webp);base64,/)) {
+        return jsonResponse({ error: 'Invalid image format. Use jpeg, png, gif, or webp.' }, 400);
+      }
+      const key = 'user:' + username.trim().toLowerCase();
+      const raw = await env.USERS_KV.get(key);
+      if (!raw) {
+        return jsonResponse({ error: 'User not found' }, 404);
+      }
+      const user = JSON.parse(raw);
+      user.profilePicture = picture;
+      await env.USERS_KV.put(key, JSON.stringify(user));
+      return jsonResponse({ success: true, message: 'Profile picture updated!' });
+    }
+
+    // --- REST: Get User Profile ---
+    if (url.pathname.startsWith('/api/user/') && request.method === 'GET') {
+      const targetUsername = url.pathname.replace('/api/user/', '');
+      if (!targetUsername) {
+        return jsonResponse({ error: 'Username required' }, 400);
+      }
+      const key = 'user:' + targetUsername.trim().toLowerCase();
+      const raw = await env.USERS_KV.get(key);
+      if (!raw) {
+        return jsonResponse({ error: 'User not found' }, 404);
+      }
+      const user = JSON.parse(raw);
+      // Return only public info
+      return jsonResponse({
+        id: user.id,
+        username: user.username,
+        rating: user.rating,
+        profilePicture: user.profilePicture,
+        stats: user.stats,
+        lastSeen: user.lastSeen
+      });
+    }
+
+    // --- REST: Get Friends List with Online Status ---
+    if (url.pathname === '/api/friends' && request.method === 'GET') {
+      const authHeader = request.headers.get('Authorization');
+      if (!authHeader) {
+        return jsonResponse({ error: 'Authorization required' }, 401);
+      }
+      const token = authHeader.replace('Bearer ', '');
+      const { username } = await request.json();
+      if (!username) {
+        return jsonResponse({ error: 'Username required' }, 400);
+      }
+      const key = 'user:' + username.trim().toLowerCase();
+      const raw = await env.USERS_KV.get(key);
+      if (!raw) {
+        return jsonResponse({ error: 'User not found' }, 404);
+      }
+      const user = JSON.parse(raw);
+      // Fetch friend details
+      const friendsList = [];
+      for (const friendName of user.friends || []) {
+        const friendKey = 'user:' + friendName.toLowerCase();
+        const friendRaw = await env.USERS_KV.get(friendKey);
+        if (friendRaw) {
+          const friend = JSON.parse(friendRaw);
+          friendsList.push({
+            id: friend.id,
+            username: friend.username,
+            rating: friend.rating,
+            profilePicture: friend.profilePicture,
+            stats: friend.stats,
+            lastSeen: friend.lastSeen
+          });
+        }
+      }
+      return jsonResponse({ friends: friendsList });
+    }
+
+    // --- REST: Record Game to History ---
+    if (url.pathname === '/api/game/history' && request.method === 'POST') {
+      const authHeader = request.headers.get('Authorization');
+      if (!authHeader) {
+        return jsonResponse({ error: 'Authorization required' }, 401);
+      }
+      const { username, gameRecord } = await request.json();
+      if (!username || !gameRecord) {
+        return jsonResponse({ error: 'Username and gameRecord required' }, 400);
+      }
+      const key = 'user:' + username.trim().toLowerCase();
+      const raw = await env.USERS_KV.get(key);
+      if (!raw) {
+        return jsonResponse({ error: 'User not found' }, 404);
+      }
+      const user = JSON.parse(raw);
+      if (!user.gameHistory) {
+        user.gameHistory = [];
+      }
+      // Add game with unique ID
+      gameRecord.gameId = gameRecord.gameId || uuidv4();
+      gameRecord.timestamp = gameRecord.timestamp || Date.now();
+      user.gameHistory.unshift(gameRecord);
+      // Keep only last 100 games
+      if (user.gameHistory.length > 100) {
+        user.gameHistory = user.gameHistory.slice(0, 100);
+      }
+      await env.USERS_KV.put(key, JSON.stringify(user));
+      return jsonResponse({ success: true, gameId: gameRecord.gameId });
+    }
+
+    // --- REST: Get Game History ---
+    if (url.pathname === '/api/game/history' && request.method === 'GET') {
+      const authHeader = request.headers.get('Authorization');
+      if (!authHeader) {
+        return jsonResponse({ error: 'Authorization required' }, 401);
+      }
+      const { username } = await request.json();
+      if (!username) {
+        return jsonResponse({ error: 'Username required' }, 400);
+      }
+      const key = 'user:' + username.trim().toLowerCase();
+      const raw = await env.USERS_KV.get(key);
+      if (!raw) {
+        return jsonResponse({ error: 'User not found' }, 404);
+      }
+      const user = JSON.parse(raw);
+      return jsonResponse({ gameHistory: user.gameHistory || [] });
     }
 
     return jsonResponse({ error: 'Not found' }, 404);
@@ -269,6 +419,312 @@ export class LobbyRoom {
           }
         }
         this._broadcastOnlineStatus();
+        break;
+      }
+
+      case 'send-friend-request': {
+        const { targetUsername } = payload;
+        const conn = this.connections.get(socketId);
+        if (!conn) return;
+        const sender = conn.user;
+
+        const senderKey = 'user:' + sender.username.toLowerCase();
+        const targetKey = 'user:' + targetUsername.trim().toLowerCase();
+
+        const [senderRaw, targetRaw] = await Promise.all([
+          this.env.USERS_KV.get(senderKey),
+          this.env.USERS_KV.get(targetKey)
+        ]);
+
+        if (!targetRaw) {
+          return this._send(ws, 'notification', { type: 'error', message: `User "${targetUsername}" not found.` });
+        }
+        if (targetKey === senderKey) {
+          return this._send(ws, 'notification', { type: 'error', message: 'You cannot send a friend request to yourself.' });
+        }
+
+        const senderDb = JSON.parse(senderRaw);
+        const targetDb = JSON.parse(targetRaw);
+
+        if (senderDb.friends && senderDb.friends.includes(targetDb.username)) {
+          return this._send(ws, 'notification', { type: 'error', message: `"${targetDb.username}" is already your friend.` });
+        }
+
+        // Check if request already sent
+        if (!senderDb.outgoingRequests) senderDb.outgoingRequests = [];
+        if (!targetDb.friendRequests) targetDb.friendRequests = [];
+        
+        if (senderDb.outgoingRequests.some(r => r.username === targetDb.username)) {
+          return this._send(ws, 'notification', { type: 'error', message: `Friend request already sent to "${targetDb.username}".` });
+        }
+
+        // Check if there's a pending request from target (accept it instead)
+        if (targetDb.friendRequests && targetDb.friendRequests.some(r => r.username === senderDb.username)) {
+          // Add each other as friends
+          if (!senderDb.friends) senderDb.friends = [];
+          if (!targetDb.friends) targetDb.friends = [];
+          senderDb.friends.push(targetDb.username);
+          targetDb.friends.push(senderDb.username);
+          // Remove the request
+          targetDb.friendRequests = targetDb.friendRequests.filter(r => r.username !== senderDb.username);
+          // Remove from outgoing
+          senderDb.outgoingRequests = senderDb.outgoingRequests.filter(r => r.username !== targetDb.username);
+          
+          await Promise.all([
+            this.env.USERS_KV.put(senderKey, JSON.stringify(senderDb)),
+            this.env.USERS_KV.put(targetKey, JSON.stringify(targetDb))
+          ]);
+          
+          this._send(ws, 'friend-request-accepted', {
+            friend: { id: targetDb.id, username: targetDb.username, rating: targetDb.rating },
+            message: `You and ${targetDb.username} are now friends!`
+          });
+          
+          const targetSocketId = this.userIndex.get(targetDb.id);
+          if (targetSocketId) {
+            const targetConn = this.connections.get(targetSocketId);
+            if (targetConn) {
+              this._send(targetConn.ws, 'friend-added-notify', {
+                friendName: senderDb.username,
+                friends: targetDb.friends
+              });
+            }
+          }
+        } else {
+          // Send new request
+          targetDb.friendRequests = targetDb.friendRequests || [];
+          targetDb.friendRequests.push({ userId: senderDb.id, username: senderDb.username });
+          
+          senderDb.outgoingRequests = senderDb.outgoingRequests || [];
+          senderDb.outgoingRequests.push({ userId: targetDb.id, username: targetDb.username });
+          
+          await Promise.all([
+            this.env.USERS_KV.put(senderKey, JSON.stringify(senderDb)),
+            this.env.USERS_KV.put(targetKey, JSON.stringify(targetDb))
+          ]);
+          
+          this._send(ws, 'friend-request-sent', {
+            targetUsername: targetDb.username,
+            message: `Friend request sent to "${targetDb.username}"!`
+          });
+          
+          const targetSocketId = this.userIndex.get(targetDb.id);
+          if (targetSocketId) {
+            const targetConn = this.connections.get(targetSocketId);
+            if (targetConn) {
+              this._send(targetConn.ws, 'incoming-friend-request', {
+                userId: senderDb.id,
+                username: senderDb.username,
+                rating: senderDb.rating
+              });
+            }
+          }
+        }
+        break;
+      }
+
+      case 'accept-friend-request': {
+        const { userId } = payload;
+        const conn = this.connections.get(socketId);
+        if (!conn) return;
+        const accepter = conn.user;
+
+        const accepterKey = 'user:' + accepter.username.toLowerCase();
+        const accepterRaw = await this.env.USERS_KV.get(accepterKey);
+        if (!accepterRaw) return;
+        
+        const accepterDb = JSON.parse(accepterRaw);
+        if (!accepterDb.friendRequests) return;
+        
+        // Find the request
+        const request = accepterDb.friendRequests.find(r => r.userId === userId);
+        if (!request) return;
+        
+        // Get sender's data
+        const senderKey = 'user:' + request.username.toLowerCase();
+        const senderRaw = await this.env.USERS_KV.get(senderKey);
+        if (!senderRaw) return;
+        
+        const senderDb = JSON.parse(senderRaw);
+        
+        // Add each other as friends
+        if (!accepterDb.friends) accepterDb.friends = [];
+        if (!senderDb.friends) senderDb.friends = [];
+        accepterDb.friends.push(senderDb.username);
+        senderDb.friends.push(accepterDb.username);
+        
+        // Remove request
+        accepterDb.friendRequests = accepterDb.friendRequests.filter(r => r.userId !== userId);
+        
+        // Remove from sender's outgoing
+        if (senderDb.outgoingRequests) {
+          senderDb.outgoingRequests = senderDb.outgoingRequests.filter(r => r.username !== accepterDb.username);
+        }
+        
+        await Promise.all([
+          this.env.USERS_KV.put(accepterKey, JSON.stringify(accepterDb)),
+          this.env.USERS_KV.put(senderKey, JSON.stringify(senderDb))
+        ]);
+        
+        this._send(ws, 'friend-request-accepted', {
+          friend: { id: senderDb.id, username: senderDb.username, rating: senderDb.rating },
+          message: `You and ${senderDb.username} are now friends!`
+        });
+        
+        const senderSocketId = this.userIndex.get(senderDb.id);
+        if (senderSocketId) {
+          const senderConn = this.connections.get(senderSocketId);
+          if (senderConn) {
+            this._send(senderConn.ws, 'friend-added-notify', {
+              friendName: accepterDb.username,
+              friends: senderDb.friends
+            });
+          }
+        }
+        this._broadcastOnlineStatus();
+        break;
+      }
+
+      case 'decline-friend-request': {
+        const { userId } = payload;
+        const conn = this.connections.get(socketId);
+        if (!conn) return;
+        const decliner = conn.user;
+
+        const declinerKey = 'user:' + decliner.username.toLowerCase();
+        const declinerRaw = await this.env.USERS_KV.get(declinerKey);
+        if (!declinerRaw) return;
+        
+        const declinerDb = JSON.parse(declinerRaw);
+        if (!declinerDb.friendRequests) return;
+        
+        // Find the request
+        const request = declinerDb.friendRequests.find(r => r.userId === userId);
+        if (!request) return;
+        
+        // Remove request
+        declinerDb.friendRequests = declinerDb.friendRequests.filter(r => r.userId !== userId);
+        
+        // Update sender's outgoing requests
+        const senderKey = 'user:' + request.username.toLowerCase();
+        const senderRaw = await this.env.USERS_KV.get(senderKey);
+        if (senderRaw) {
+          const senderDb = JSON.parse(senderRaw);
+          if (senderDb.outgoingRequests) {
+            senderDb.outgoingRequests = senderDb.outgoingRequests.filter(r => r.username !== declinerDb.username);
+          }
+          await this.env.USERS_KV.put(senderKey, JSON.stringify(senderDb));
+        }
+        
+        await this.env.USERS_KV.put(declinerKey, JSON.stringify(declinerDb));
+        
+        this._send(ws, 'friend-request-declined', {
+          userId,
+          message: 'Friend request declined.'
+        });
+        break;
+      }
+
+      case 'remove-friend': {
+        const { userId } = payload;
+        const conn = this.connections.get(socketId);
+        if (!conn) return;
+        const user = conn.user;
+
+        const userKey = 'user:' + user.username.toLowerCase();
+        const userRaw = await this.env.USERS_KV.get(userKey);
+        if (!userRaw) return;
+        
+        const userDb = JSON.parse(userRaw);
+        
+        // Get friend's data to find their username
+        let friendUsername = null;
+        if (userDb.friends) {
+          for (const fname of userDb.friends) {
+            const fkey = 'user:' + fname.toLowerCase();
+            const fraw = await this.env.USERS_KV.get(fkey);
+            if (fraw) {
+              const f = JSON.parse(fraw);
+              if (f.id === userId) {
+                friendUsername = f.username;
+                break;
+              }
+            }
+          }
+        }
+        
+        if (!friendUsername) {
+          return this._send(ws, 'notification', { type: 'error', message: 'Friend not found.' });
+        }
+        
+        const friendKey = 'user:' + friendUsername.toLowerCase();
+        const friendRaw = await this.env.USERS_KV.get(friendKey);
+        
+        if (friendRaw) {
+          const friendDb = JSON.parse(friendRaw);
+          if (friendDb.friends) {
+            friendDb.friends = friendDb.friends.filter(f => f !== userDb.username);
+          }
+          await this.env.USERS_KV.put(friendKey, JSON.stringify(friendDb));
+        }
+        
+        if (userDb.friends) {
+          userDb.friends = userDb.friends.filter(f => f !== friendUsername);
+        }
+        
+        await this.env.USERS_KV.put(userKey, JSON.stringify(userDb));
+        
+        this._send(ws, 'friend-removed', {
+          userId,
+          message: `Removed ${friendUsername} from friends.`
+        });
+        break;
+      }
+
+      case 'get-friend-requests': {
+        const conn = this.connections.get(socketId);
+        if (!conn) return;
+        const user = conn.user;
+
+        const userKey = 'user:' + user.username.toLowerCase();
+        const userRaw = await this.env.USERS_KV.get(userKey);
+        if (!userRaw) return;
+        
+        const userDb = JSON.parse(userRaw);
+        this._send(ws, 'friend-requests-list', {
+          incoming: userDb.friendRequests || [],
+          outgoing: userDb.outgoingRequests || []
+        });
+        break;
+      }
+
+      case 'get-friends-list': {
+        const conn = this.connections.get(socketId);
+        if (!conn) return;
+        const user = conn.user;
+
+        const userKey = 'user:' + user.username.toLowerCase();
+        const userRaw = await this.env.USERS_KV.get(userKey);
+        if (!userRaw) return;
+        
+        const userDb = JSON.parse(userRaw);
+        const friendsList = [];
+        for (const friendName of userDb.friends || []) {
+          const friendKey = 'user:' + friendName.toLowerCase();
+          const friendRaw = await this.env.USERS_KV.get(friendKey);
+          if (friendRaw) {
+            const friend = JSON.parse(friendRaw);
+            friendsList.push({
+              id: friend.id,
+              username: friend.username,
+              rating: friend.rating,
+              profilePicture: friend.profilePicture,
+              stats: friend.stats,
+              lastSeen: friend.lastSeen
+            });
+          }
+        }
+        this._send(ws, 'friends-list', { friends: friendsList });
         break;
       }
 
@@ -530,15 +986,43 @@ export class LobbyRoom {
       const wUser = JSON.parse(wRaw);
       const bUser = JSON.parse(bRaw);
 
+      // Determine result for white player
+      let whiteResult = 'draw';
       if (winnerId === game.players.white) {
-        wUser.stats.won++;  bUser.stats.lost++;
+        whiteResult = 'win';
+        wUser.stats.won++; bUser.stats.lost++;
         wUser.rating += 15; bUser.rating -= 15;
       } else if (winnerId === game.players.black) {
-        bUser.stats.won++;  wUser.stats.lost++;
+        whiteResult = 'loss';
+        bUser.stats.won++; wUser.stats.lost++;
         bUser.rating += 15; wUser.rating -= 15;
       } else {
         wUser.stats.drawn++; bUser.stats.drawn++;
       }
+
+      // Record game history for both players
+      const gameRecord = {
+        gameId: game.gameId,
+        type: 'pvp',
+        result: whiteResult,
+        opponent: { id: bUser.id, username: bUser.username },
+        timestamp: Date.now(),
+        moves: game.moves,
+        fen: game.moves.length > 0 ? game.moves[game.moves.length - 1].fen : null
+      };
+      
+      const wRecord = { ...gameRecord, result: whiteResult };
+      const bRecord = { ...gameRecord, result: whiteResult === 'win' ? 'loss' : whiteResult === 'loss' ? 'win' : 'draw', opponent: { id: wUser.id, username: wUser.username } };
+      
+      if (!wUser.gameHistory) wUser.gameHistory = [];
+      if (!bUser.gameHistory) bUser.gameHistory = [];
+      
+      wUser.gameHistory.unshift(wRecord);
+      bUser.gameHistory.unshift(bRecord);
+      
+      // Keep only last 100 games
+      if (wUser.gameHistory.length > 100) wUser.gameHistory = wUser.gameHistory.slice(0, 100);
+      if (bUser.gameHistory.length > 100) bUser.gameHistory = bUser.gameHistory.slice(0, 100);
 
       await Promise.all([
         this.env.USERS_KV.put(whiteKey, JSON.stringify(wUser)),
