@@ -3519,7 +3519,10 @@ function uploadProfilePicture(input) {
     try {
       const res = await fetch(API_BASE + '/api/profile/picture', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + profileUser.username
+        },
         body: JSON.stringify({ username: profileUser.username, picture })
       });
       const data = await res.json();
