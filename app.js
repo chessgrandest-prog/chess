@@ -1866,13 +1866,14 @@ function onMoveExecuted(move) {
   }
 
   // Emit move to online opponent before checking game over
-  if (window._onlineMode && onlineGameId) {
+  // Skip if this is a received move to avoid echoing it back
+  if (window._onlineMode && onlineGameId && !window._isReceivingOnlineMove) {
     onlineEmitMove({ from: move.from, to: move.to, promotion: move.promotion || null }, game.fen());
   }
 
   if (game.game_over()) {
-    // Sync game-over to online opponent
-    if (window._onlineMode && onlineGameId) {
+    // Sync game-over to online opponent (skip if this is a received move)
+    if (window._onlineMode && onlineGameId && !window._isReceivingOnlineMove) {
       const result = game.in_checkmate() ? 'checkmate' : game.in_draw() ? 'draw' : 'game_over';
       const winnerId = game.in_checkmate()
         ? (move.color === onlineMyColor ? onlineUser.id : null)
