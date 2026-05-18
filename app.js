@@ -356,6 +356,7 @@ let currentPuzzle = null;
 let puzzleStep = 0;
 let currentPuzzleSource = 'lichess'; // 'lichess' | 'daily' | 'history'
 let analysisModeActive = false;
+let _puzzlePerfect = true; // false if player made any incorrect move this puzzle
 let sessionHistory = [];
 
 // Filters
@@ -813,6 +814,7 @@ function renderDailyCardWidget(puzzle) {
 function initializePuzzleState(puzzle) {
   currentPuzzle = puzzle;
   puzzleStep = 0;
+  _puzzlePerfect = true;
   notationReset();
 
   // Clean up analysis state unless reviewing from history
@@ -1036,8 +1038,12 @@ function handlePuzzleSolved() {
     const idx = playerStats.failedPuzzles.indexOf(currentPuzzle.id);
     if (idx !== -1) playerStats.failedPuzzles.splice(idx, 1);
 
-    // Standard FIDE Elo adjustment math!
-    updateTacticalRating(true, currentPuzzle.rating);
+    // Only award ELO if solved without any mistakes
+    if (_puzzlePerfect) {
+      updateTacticalRating(true, currentPuzzle.rating);
+    } else {
+      writeLog("<span style='color: var(--color-text-secondary);'>Puzzle solved after mistake — no ELO awarded.</span>");
+    }
   }
 
   saveUserStats();
@@ -1048,6 +1054,7 @@ function handlePuzzleSolved() {
 }
 
 function handleIncorrectPuzzleMove(playedMoveStr) {
+  _puzzlePerfect = false; // Mark puzzle as no longer solvable for full ELO gain
   soundCtrl.play('check'); // warning bell
   writeLog("<span style='color: #ff073a;'>[SYSTEM WARNING] suboptimal tactical branch. Try again!</span>");
 
@@ -1571,9 +1578,8 @@ function updateCapturedPieces() {
 // -------------------------------------------------------------------------
 function onTileClick(square) {
   if (isAITurn) return;
-  if (_notationCursor !== -1) return; // Block moves while reviewing history
-
-  // Online mode: block moves when it is not our color's turn
+  // In review/branch mode we allow moves — they create a branch
+  // But block online moves when not your turn
   if (window._onlineMode && game.turn() !== window._onlineColor) return;
 
   const piece = game.get(square);
@@ -1597,7 +1603,6 @@ function onTileClick(square) {
 
 function onPointerDown(e) {
   if (isAITurn) return;
-  if (_notationCursor !== -1) return; // Block drag while reviewing history
   if (window._onlineMode && game.turn() !== window._onlineColor) return;
   if (e.button !== 0) return; // Only drag pieces with left-click!
   e.stopPropagation();
@@ -3078,33 +3083,71 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* =========================================================================
-   NOTATION SIDEBAR — Move log, click-to-review, arrow key navigation
+   NOTATION SIDEBAR — Move log, branching, click-to-review, arrow keys
+   =========================================================================
+   _notationTree  : the main line as an array of node objects
+   _notationBranches : map of branchPointIdx -> array of branch node arrays
+   _notationCursor   : index into current sequence (-1 = live end, -2 = before move 0)
+   _notationInBranch : index of active branch at _notationBranchPoint, or -1
+   _notationBranchPoint : main-line index where branch diverged
    ========================================================================= */
 
-// Full move history snapshots: array of { san, fen, color, moveIndex }
-let _notationHistory = [];   // all half-moves
-let _notationCursor = -1;    // -1 = live position; 0..N = reviewing move N
-let _liveGame = null;        // backup of the live game when reviewing
+let _notationTree = [];       // main line: [{ san, fen, color }]
+let _notationBranches = {};   // branchPointIdx -> [ [{san,fen,color},...], ... ]
+let _notationCursor = -1;     // position in active sequence; -1 = live end; -2 = before all
+let _notationInBranch = -1;   // which branch we're in (-1 = main line)
+let _notationBranchPoint = -1;// main-line index where we branched off
+let _notationBranchCursor = -1;// position within current branch
+let _liveGame = null;         // FEN backup of the real live game
 
-// Call after every move to append to the log and update the UI
+// Ensure banner is hidden on load
+document.addEventListener('DOMContentLoaded', () => {
+  _notationHideBanner();
+});
+
+/* --- public API --- */
+
 function notationOnMove(move) {
   if (!move) return;
-  _notationHistory.push({
-    san: move.san,
-    fen: game.fen(),
-    color: move.color,          // 'w' or 'b'
-    flags: move.flags || '',
-  });
-  _notationCursor = -1;        // back to live view
-  _liveGame = null;
+  const node = { san: move.san, fen: game.fen(), color: move.color };
+
+  if (_notationCursor === -1 && _notationInBranch === -1) {
+    // Normal live play — append to main line
+    _notationTree.push(node);
+
+  } else {
+    // Playing from a review position — create/extend a branch
+    _notationHideBanner();
+
+    if (_notationInBranch === -1) {
+      // First branch move off the main line
+      const bp = _notationCursor === -2 ? -1 : _notationCursor;
+      _notationBranchPoint = bp;
+      if (!_notationBranches[bp]) _notationBranches[bp] = [];
+      _notationBranches[bp].push([node]);
+      _notationInBranch = _notationBranches[bp].length - 1;
+      _notationBranchCursor = 0;
+    } else {
+      // Continuing an existing branch
+      _notationBranches[_notationBranchPoint][_notationInBranch].push(node);
+      _notationBranchCursor = _notationBranches[_notationBranchPoint][_notationInBranch].length - 1;
+    }
+
+    // cursor stays pointing at branch end — remove the blocking guards
+    _notationCursor = _notationBranchPoint; // keep context of where branch forked
+  }
+
   notationRender();
   notationScrollToActive();
 }
 
-// Wipe the log (called from resetGame / new puzzle)
 function notationReset() {
-  _notationHistory = [];
+  _notationTree = [];
+  _notationBranches = {};
   _notationCursor = -1;
+  _notationInBranch = -1;
+  _notationBranchPoint = -1;
+  _notationBranchCursor = -1;
   _liveGame = null;
   notationRender();
   _notationHideBanner();
@@ -3112,30 +3155,27 @@ function notationReset() {
   if (footer) footer.textContent = '';
 }
 
-// Show game result in footer
 function notationSetResult(text) {
   const footer = document.getElementById('notation-result-display');
   if (footer) footer.textContent = text;
 }
 
-// Jump to a specific half-move index (0-based), or -1 for live
 function notationGoTo(idx) {
-  if (_notationHistory.length === 0) return;
+  // Jump to main-line position idx (0-based half-move)
+  if (_notationTree.length === 0) return;
   if (idx < 0) idx = 0;
-  if (idx >= _notationHistory.length) idx = _notationHistory.length - 1;
+  if (idx >= _notationTree.length) idx = _notationTree.length - 1;
 
-  // Save live position on first review jump
-  if (_notationCursor === -1) {
-    _liveGame = game.fen();
+  if (_notationCursor === -1 && _notationInBranch === -1) {
+    _liveGame = game.fen(); // save live position first time
   }
 
   _notationCursor = idx;
-  const snap = _notationHistory[idx];
+  _notationInBranch = -1;
+  _notationBranchPoint = -1;
+  _notationBranchCursor = -1;
 
-  // Reconstruct position at this point
-  const tmpGame = new Chess(snap.fen);
-  game = tmpGame;
-
+  game = new Chess(_notationTree[idx].fen);
   selectedSquare = null;
   possibleMoves = [];
   renderBoard();
@@ -3145,11 +3185,14 @@ function notationGoTo(idx) {
 }
 
 function notationGoToEnd() {
-  if (_notationHistory.length === 0) return;
-  if (_notationCursor === -1) return; // already live
+  // Return to the live game position
+  if (_notationCursor === -1 && _notationInBranch === -1) return; // already live
 
-  // Restore live position
   _notationCursor = -1;
+  _notationInBranch = -1;
+  _notationBranchPoint = -1;
+  _notationBranchCursor = -1;
+
   if (_liveGame) {
     game = new Chess(_liveGame);
     _liveGame = null;
@@ -3163,12 +3206,37 @@ function notationGoToEnd() {
 }
 
 function notationStepBack() {
-  if (_notationHistory.length === 0) return;
+  if (_notationTree.length === 0) return;
+
+  // If in a branch, step back within it
+  if (_notationInBranch !== -1) {
+    const branch = _notationBranches[_notationBranchPoint][_notationInBranch];
+    if (_notationBranchCursor > 0) {
+      _notationBranchCursor--;
+      game = new Chess(branch[_notationBranchCursor].fen);
+      selectedSquare = null; possibleMoves = [];
+      renderBoard(); notationRender(); notationScrollToActive();
+      _notationShowBanner();
+    } else {
+      // Back to the branch point on main line
+      _notationInBranch = -1;
+      _notationBranchCursor = -1;
+      if (_notationBranchPoint === -1) {
+        _notationGoToStart();
+      } else {
+        game = new Chess(_notationTree[_notationBranchPoint].fen);
+        selectedSquare = null; possibleMoves = [];
+        renderBoard(); notationRender(); notationScrollToActive();
+        _notationShowBanner();
+      }
+    }
+    return;
+  }
+
   if (_notationCursor === -1) {
-    // Go to second-to-last move (last move is current)
-    const target = _notationHistory.length - 2;
+    // At live end — step back to second-to-last main move
+    const target = _notationTree.length - 2;
     if (target < 0) {
-      // Only one move played — go to start position
       _notationGoToStart();
     } else {
       notationGoTo(target);
@@ -3181,11 +3249,24 @@ function notationStepBack() {
 }
 
 function notationStepForward() {
-  if (_notationHistory.length === 0) return;
-  if (_notationCursor === -1) return; // already at end
+  if (_notationTree.length === 0) return;
+
+  // In a branch — step forward within it
+  if (_notationInBranch !== -1) {
+    const branch = _notationBranches[_notationBranchPoint][_notationInBranch];
+    if (_notationBranchCursor < branch.length - 1) {
+      _notationBranchCursor++;
+      game = new Chess(branch[_notationBranchCursor].fen);
+      selectedSquare = null; possibleMoves = [];
+      renderBoard(); notationRender(); notationScrollToActive();
+    }
+    return;
+  }
+
+  if (_notationCursor === -1) return; // already at live end
 
   const next = _notationCursor + 1;
-  if (next >= _notationHistory.length) {
+  if (next >= _notationTree.length) {
     notationGoToEnd();
   } else {
     notationGoTo(next);
@@ -3193,9 +3274,12 @@ function notationStepForward() {
 }
 
 function _notationGoToStart() {
-  if (_notationCursor === -1) _liveGame = game.fen();
-  _notationCursor = -2; // sentinel for "before all moves"
-  game = new Chess(); // starting position
+  if (_notationCursor === -1 && _notationInBranch === -1) _liveGame = game.fen();
+  _notationCursor = -2;
+  _notationInBranch = -1;
+  _notationBranchPoint = -1;
+  _notationBranchCursor = -1;
+  game = new Chess();
   selectedSquare = null;
   possibleMoves = [];
   renderBoard();
@@ -3212,50 +3296,109 @@ function _notationHideBanner() {
   if (b) b.classList.remove('active');
 }
 
-// Re-render the full move list
+function _isReviewing() {
+  return _notationCursor !== -1 || _notationInBranch !== -1;
+}
+
 function notationRender() {
   const list = document.getElementById('notation-move-list');
   if (!list) return;
 
-  if (_notationHistory.length === 0) {
+  if (_notationTree.length === 0) {
     list.innerHTML = '<div class="notation-empty-state">No moves yet</div>';
     return;
   }
 
-  // Group into pairs: [ [white, black?], ... ]
-  const rows = [];
-  for (let i = 0; i < _notationHistory.length; i += 2) {
-    rows.push([_notationHistory[i], _notationHistory[i + 1] || null]);
-  }
-
   let html = '';
-  rows.forEach((pair, rowIdx) => {
-    const wIdx = rowIdx * 2;
-    const bIdx = rowIdx * 2 + 1;
 
-    const wActive = _notationCursor === wIdx;
-    const bActive = _notationCursor === bIdx;
+  for (let i = 0; i < _notationTree.length; i += 2) {
+    const wNode = _notationTree[i];
+    const bNode = _notationTree[i + 1] || null;
+    const moveNum = Math.floor(i / 2) + 1;
+    const wIdx = i;
+    const bIdx = i + 1;
 
-    // Live means last move highlight
-    const wLive = _notationCursor === -1 && wIdx === _notationHistory.length - 1 && _notationHistory.length % 2 === 1;
-    const bLive = _notationCursor === -1 && pair[1] && bIdx === _notationHistory.length - 1;
+    // Highlight logic for main line
+    const atLiveEnd = (_notationCursor === -1 && _notationInBranch === -1);
+    const wActive = (_notationCursor === wIdx && _notationInBranch === -1)
+      || (atLiveEnd && wIdx === _notationTree.length - 1 && _notationTree.length % 2 === 1);
+    const bActive = (_notationCursor === bIdx && _notationInBranch === -1)
+      || (atLiveEnd && bNode && bIdx === _notationTree.length - 1);
 
-    const wClass = wActive ? 'active-move' : (wLive ? 'active-move' : '');
-    const bClass = bActive ? 'active-move' : (bLive ? 'active-move' : '');
+    const wClass = wActive ? 'active-move' : '';
+    const bClass = bActive ? 'active-move' : '';
 
-    const bCell = pair[1]
-      ? `<span class="notation-cell ${bClass}" onclick="notationGoTo(${bIdx})">${_notationEscape(pair[1].san)}</span>`
+    const bCell = bNode
+      ? `<span class="notation-cell ${bClass}" onclick="notationGoTo(${bIdx})">${_notationEscape(bNode.san)}</span>`
       : `<span class="notation-cell" style="opacity:0.2;">—</span>`;
 
-    html += `
-      <div class="notation-row">
-        <span class="notation-move-num">${rowIdx + 1}.</span>
-        <span class="notation-cell ${wClass}" onclick="notationGoTo(${wIdx})">${_notationEscape(pair[0].san)}</span>
-        ${bCell}
-      </div>`;
-  });
+    html += `<div class="notation-row">
+      <span class="notation-move-num">${moveNum}.</span>
+      <span class="notation-cell ${wClass}" onclick="notationGoTo(${wIdx})">${_notationEscape(wNode.san)}</span>
+      ${bCell}
+    </div>`;
+
+    // Render any branches that fork off after move i (white) or i+1 (black)
+    [wIdx, bIdx].forEach(forkIdx => {
+      if (_notationBranches[forkIdx]) {
+        _notationBranches[forkIdx].forEach((branch, branchIdx) => {
+          if (branch.length === 0) return;
+          const isActiveBranch = _notationInBranch === branchIdx && _notationBranchPoint === forkIdx;
+
+          // Branch label: "3. g3 g6  4. f4..."
+          let branchHtml = '';
+          let bMoveNum = Math.floor(forkIdx / 2) + 1;
+          let firstMove = true;
+
+          for (let b = 0; b < branch.length; b++) {
+            const bn = branch[b];
+            const isWhiteBranchMove = (forkIdx % 2 === 0) ? (b % 2 === 0) : (b % 2 === 1);
+            const needsNum = firstMove || isWhiteBranchMove;
+
+            if (needsNum) {
+              if (!firstMove) bMoveNum++;
+              const ellipsis = firstMove && !isWhiteBranchMove ? `${bMoveNum}. ...` : '';
+              if (firstMove && !isWhiteBranchMove) {
+                branchHtml += `<span class="notation-branch-num">${bMoveNum}.</span><span class="notation-branch-ellipsis">...</span>`;
+              } else if (isWhiteBranchMove) {
+                branchHtml += `<span class="notation-branch-num">${bMoveNum}.</span>`;
+              }
+              firstMove = false;
+            }
+
+            const bActive2 = isActiveBranch && _notationBranchCursor === b;
+            const bClass2 = bActive2 ? 'active-move' : '';
+            branchHtml += `<span class="notation-cell notation-branch-cell ${bClass2}" onclick="notationJumpBranch(${forkIdx},${branchIdx},${b})">${_notationEscape(bn.san)}</span>`;
+          }
+
+          html += `<div class="notation-branch-row">${branchHtml}</div>`;
+        });
+      }
+    });
+  }
 
   list.innerHTML = html;
+}
+
+// Jump into a specific branch at a specific position
+function notationJumpBranch(branchPoint, branchIdx, branchCursor) {
+  if (_notationCursor === -1 && _notationInBranch === -1) {
+    _liveGame = game.fen();
+  }
+
+  _notationBranchPoint = branchPoint;
+  _notationInBranch = branchIdx;
+  _notationBranchCursor = branchCursor;
+  _notationCursor = branchPoint; // keep main-line context
+
+  const branch = _notationBranches[branchPoint][branchIdx];
+  game = new Chess(branch[branchCursor].fen);
+  selectedSquare = null;
+  possibleMoves = [];
+  renderBoard();
+  notationRender();
+  notationScrollToActive();
+  _notationShowBanner();
 }
 
 function _notationEscape(san) {
@@ -3266,12 +3409,10 @@ function notationScrollToActive() {
   const list = document.getElementById('notation-move-list');
   if (!list) return;
   const active = list.querySelector('.active-move');
-  if (active) {
-    active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
+  if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
-// Arrow key navigation — only when not typing in an input
+// Arrow key navigation
 document.addEventListener('keydown', (e) => {
   const tag = document.activeElement ? document.activeElement.tagName : '';
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
