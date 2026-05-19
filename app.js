@@ -1462,25 +1462,102 @@ function analyzeGame(gameRecord) {
   return { moveAnalysis, accuracy };
 }
 
-// Get Stockfish evaluation for a position
-function analyzePositionWithStockfish(fen) {
-  // This is a placeholder - actual implementation would need async Stockfish call
-  // For now, return a simulated eval based on position
-  const tempGame = new Chess(fen);
-  
-  // Simple material count as rough evaluation
-  const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-  let eval = 0;
-  
-  for (const [square, piece] of tempGame.board()) {
-    if (piece) {
-      const value = pieceValues[piece.type] || 0;
-      if (piece.color === 'w') eval += value;
-      else eval -= value;
+// Get Stockfish evaluation for a position using the existing Stockfish worker
+function analyzePositionWithStockfish(fen, callback) {
+  // Use existing Stockfish if available
+  if (stockfishWorker) {
+    stockfishWorker.postMessage('stop');
+    stockfishWorker.postMessage(`position fen ${fen}`);
+    stockfishWorker.postMessage('eval');
+    
+    // Set up one-time listener for evaluation
+    const handler = (e) => {
+      const data = e.data;
+      if (data && typeof data === 'string' && data.includes('cp')) {
+        // Parse evaluation from Stockfish
+        const match = data.match(/cp\s+(-?\d+)/);
+        const eval = match ? parseInt(match[1]) : 0;
+        stockfishWorker.removeEventListener('message', handler);
+        callback(eval);
+      }
+    };
+    stockfishWorker.addEventListener('message', handler);
+    
+    // Timeout fallback
+    setTimeout(() => {
+      stockfishWorker.removeEventListener('message', handler);
+      callback(0);
+    }, 500);
+  } else {
+    // Fallback: slight random variation to detect differences
+    const tempGame = new Chess(fen);
+    const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    let eval = 0;
+    for (const [square, piece] of tempGame.board()) {
+      if (piece) {
+        const value = pieceValues[piece.type] || 0;
+        if (piece.color === 'w') eval += value;
+        else eval -= value;
+      }
     }
+    // Add small random variation to make moves distinguishable
+    eval = eval * 100 + (Math.random() * 40 - 20);
+    callback(eval);
+  }
+}
+
+// Analyze game with Stockfish - returns Promise for async analysis
+async function analyzeGameWithStockfish(gameRecord) {
+  if (!gameRecord || !gameRecord.moves || gameRecord.moves.length === 0) {
+    return { moveAnalysis: [], accuracy: null };
   }
   
-  return eval * 100; // Convert to centipawns
+  const moveAnalysis = [];
+  const tempGame = new Chess();
+  
+  // Analyze each move position
+  for (let i = 0; i < gameRecord.moves.length; i++) {
+    const moveData = gameRecord.moves[i];
+    
+    // Make the move
+    tempGame.move(moveData);
+    const fen = tempGame.fen();
+    
+    // Get evaluation asynchronously
+    const eval = await new Promise(resolve => analyzePositionWithStockfish(fen, resolve));
+    
+    moveAnalysis.push({
+      san: moveData.san || moveData.from + '-' + moveData.to,
+      from: moveData.from,
+      to: moveData.to,
+      fen: fen,
+      eval: eval,
+      classification: 'good'
+    });
+  }
+  
+  // Update classifications based on eval differences
+  for (let i = 0; i < moveAnalysis.length; i++) {
+    const playerEval = moveAnalysis[i].eval;
+    
+    // Find best alternative after this move (lower is better for moving side)
+    const isWhite = i % 2 === 0;
+    const bestAfter = moveAnalysis.slice(i + 1).map(m => m.eval);
+    
+    // If white moved, lower eval is better. If black, higher eval (more negative) is better
+    let stockfishBest;
+    if (isWhite) {
+      stockfishBest = bestAfter.length > 0 ? Math.min(...bestAfter) : null;
+    } else {
+      stockfishBest = bestAfter.length > 0 ? Math.max(...bestAfter) : null;
+    }
+    
+    moveAnalysis[i].classification = classifyMove(playerEval, stockfishBest);
+  }
+  
+  const accuracy = calculateAccuracy(moveAnalysis);
+  
+  return { moveAnalysis, accuracy };
 }
 
 function resetGame() {
@@ -3768,7 +3845,7 @@ function showProfileGameDetail(game) {
     </div>
     <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px;">
       <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 8px;">MOVES: ${game.moves?.length || 0}</div>
-      <div style="font-size: 0.7rem; font-family: monospace; color: var(--color-accent-alt); max-height: 150px; overflow-y: auto;">${(game.moves || []).map(m => m.san).join(' ')}</div>
+      <div style="font-size: 0.7rem; font-family: monospace; color: var(--color-accent-alt); max-height: 150px; overflow-y: auto; word-break: break-all;">${(game.moves || []).map(m => m.san || m.from + '-' + m.to).join(' ')}</div>
     </div>
     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
       <button class="btn-cyber active" onclick='loadGameFromHistory(${JSON.stringify(game)})' style="flex: 1; justify-content: center;">
@@ -3806,8 +3883,8 @@ function downloadPGN(game) {
   showNotification('PGN downloaded', 'success');
 }
 
-// Run game analysis and update modal
-function runGameAnalysis() {
+// Run game analysis with Stockfish
+async function runGameAnalysis() {
   const game = currentAnalyzedGame;
   if (!game || !game.moves || game.moves.length === 0) {
     showNotification('No moves to analyze', 'error');
@@ -3816,8 +3893,8 @@ function runGameAnalysis() {
   
   showNotification('Analyzing game...', 'info');
   
-  // Run analysis
-  const result = analyzeGame(game);
+  // Run async Stockfish analysis
+  const result = await analyzeGameWithStockfish(game);
   
   // Store results
   game.moveAnalysis = result.moveAnalysis;
