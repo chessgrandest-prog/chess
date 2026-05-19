@@ -362,6 +362,21 @@
                 <input type="file" id="profile-picture-input" accept="image/*" style="display: none;" onchange="uploadProfilePicture(this)">
               </div>
 
+              <!-- Bio and favorite opening -->
+              <div id="profile-customization" style="margin-bottom: 14px;">
+                <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 10px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 8px;">
+                  <div style="font-size: 0.65rem; color: var(--color-text-secondary); margin-bottom: 6px;">BIO</div>
+                  <textarea id="profile-bio" class="select-cyber" placeholder="Tell other players about yourself..." style="width: 100%; height: 50px; resize: none; padding: 6px; font-size: 0.7rem;"></textarea>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 10px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 8px;">
+                  <div style="font-size: 0.65rem; color: var(--color-text-secondary); margin-bottom: 6px;">FAVORITE OPENING</div>
+                  <input id="profile-favorite-opening" class="select-cyber" placeholder="e.g. Ruy Lopez, Sicilian Defense" style="width: 100%; padding: 8px;">
+                </div>
+                <button class="btn-cyber active" onclick="saveProfileCustomization()" style="width: 100%; justify-content: center;">
+                  <i class="fa-solid fa-floppy-disk"></i> SAVE PROFILE
+                </button>
+              </div>
+
               <!-- Stats row -->
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; text-align: center; margin-bottom: 14px;">
                 <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 8px 4px; border: 1px solid rgba(255,255,255,0.06);">
@@ -378,10 +393,36 @@
                 </div>
               </div>
 
+              <!-- Detailed stats section -->
+              <div id="profile-stats-section" style="display: none; margin-bottom: 14px;">
+                <div style="font-family: 'Orbitron', sans-serif; font-size: 0.65rem; letter-spacing: 1px; color: var(--color-text-secondary); margin-bottom: 8px;">STATISTICS</div>
+                <!-- Win rate -->
+                <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 10px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 0.7rem;">Overall Win Rate</span>
+                    <span id="profile-win-rate" style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem; color: var(--color-accent);">—</span>
+                  </div>
+                  <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+                    <div id="profile-win-rate-bar" style="height: 100%; background: linear-gradient(90deg, #00ff88, #00ccff); width: 0%; transition: width 0.3s ease;"></div>
+                  </div>
+                </div>
+                <!-- Time control breakdown -->
+                <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 10px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 8px;">
+                  <div style="font-size: 0.7rem; margin-bottom: 8px;">BY TIME CONTROL</div>
+                  <div id="profile-tc-stats" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                </div>
+                <!-- Recent trend -->
+                <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 10px; border: 1px solid rgba(255,255,255,0.06);">
+                  <div style="font-size: 0.7rem; margin-bottom: 8px;">RECENT TREND</div>
+                  <div id="profile-trend" style="display: flex; gap: 4px; justify-content: center;"></div>
+                </div>
+              </div>
+
               <!-- Sub-tabs -->
               <div style="display: flex; gap: 6px; margin-bottom: 12px;">
                 <button class="btn-cyber active" id="profile-tab-friends" onclick="profileShowSubTab('friends')" style="flex: 1; justify-content: center; padding: 8px 4px; font-size: 0.7rem;">FRIENDS</button>
                 <button class="btn-cyber" id="profile-tab-history" onclick="profileShowSubTab('history')" style="flex: 1; justify-content: center; padding: 8px 4px; font-size: 0.7rem;">HISTORY</button>
+                <button class="btn-cyber" id="profile-tab-activity" onclick="profileShowSubTab('activity')" style="flex: 1; justify-content: center; padding: 8px 4px; font-size: 0.7rem;">ACTIVITY</button>
               </div>
 
               <!-- Friends section -->
@@ -405,7 +446,24 @@
 
               <!-- Game history section -->
               <div id="profile-history-section" style="display: none;">
-                <div id="profile-history-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto;"></div>
+                <!-- Filter tabs -->
+                <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+                  <button class="btn-cyber active" onclick="filterHistory('all')" style="flex:1;padding:6px;font-size:0.6rem;">ALL</button>
+                  <button class="btn-cyber" onclick="filterHistory('win')" style="flex:1;padding:6px;font-size:0.6rem;">W</button>
+                  <button class="btn-cyber" onclick="filterHistory('loss')" style="flex:1;padding:6px;font-size:0.6rem;">L</button>
+                  <button class="btn-cyber" onclick="filterHistory('draw')" style="flex:1;padding:6px;font-size:0.6rem;">D</button>
+                </div>
+                <div id="profile-history-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto;"></div>
+              </div>
+
+              <!-- Activity section -->
+              <div id="profile-activity-section" style="display: none;">
+                <div style="font-family: 'Orbitron', sans-serif; font-size: 0.65rem; letter-spacing: 1px; color: var(--color-text-secondary); margin-bottom: 8px;">RECENT ACTIVITY</div>
+                <div id="profile-activity-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto;">
+                  <div style="font-size: 0.75rem; color: var(--color-text-secondary); text-align: center; padding: 20px;">
+                    No recent activity. Play games to see updates here.
+                  </div>
+                </div>
               </div>
 
               <!-- Game detail modal -->

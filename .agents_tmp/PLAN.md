@@ -1,10 +1,757 @@
-# 1. OBJECTIVE
-Add a complete user profile system to the NeonSkull Cyber-Chess application that enables users to:
-- Upload and display custom profile pictures
-- Manage friends with a request system (send/accept/decline)
-- View friends' profiles, stats, and online/offline status
-- Challenge friends directly to games from their profile
-- View complete game history for all games (AI, Local, Online) with results, move history, timestamps, and opponent info
+# Profile Feature Enhancement Plan - Phase 2
+
+## 1. OBJECTIVE
+Expand the existing user profile feature with four new capability areas:
+1. **Detailed Statistics Dashboard** — Win rate analytics by time control, piece performance, trends over time
+2. **Game Replay & Export** — Replay past games, share game URLs, export as PGN
+3. **Profile Customization** — Custom bio, favorite opening, theme preferences stored server-side
+4. **Activity Feed** — Friends' recent games, online status notifications, spectate games
+
+## 2. CONTEXT SUMMARY
+
+### Current Architecture
+- **Backend**: Cloudflare Worker (`worker.js`) with KV storage
+- **Frontend**: `app.js` + `index.html` with drawer panels
+- **Auth**: PBKDF2 password hashing via Web Crypto
+- **Real-time**: WebSocket via Durable Objects (LobbyRoom)
+
+### Existing Data Structures
+
+**User Object** (worker.js lines 118-130):
+```javascript
+{
+  id: uuid,
+  username: string,
+  passwordHash: string,
+  friends: [],
+  profilePicture: null,     // ← extend with bio, favoriteOpening
+  gameHistory: [],
+  friendRequests: [],
+  outgoingRequests: [],
+  lastSeen: Date.now(),
+  rating: 1500,
+  stats: { won: 0, lost: 0, drawn: 0 }
+}
+```
+
+**Game Record** (worker.js lines 1046-1054):
+```javascript
+{
+  gameId: string,
+  type: 'pvp',           // + 'puzzle', 'ai'
+  result: 'win' | 'loss' | 'draw',
+  opponent: { id, username },
+  timestamp: Date.now(),
+  moves: [{ san, from, to, flags, fen }],  // ← used for stats analysis
+  fen: string,        // final position
+  // MISSING: timerDuration, timeControl for analytics
+}
+```
+
+### Files to Modify
+1. `worker.js` — Add new API endpoints, new WebSocket events, enhance game record
+2. `app.js` — Add frontend functions for stats, export, bio, activity feed
+3. `index.html` — New UI sections in profile panel
+4. `style.css` — New component styles (optional)
+
+## 3. APPROACH OVERVIEW
+
+### Implementation Phases (recommended order)
+
+**Phase A: Game Replay & Export (Quick Wins)**
+- Use existing gameHistory data — minimal backend changes needed
+- Add client-side replay UI using existing notation review logic
+- Add PGN/JSON export endpoints
+
+**Phase B: Detailed Statistics (Medium)**
+- Enhance game record to track timerDuration/timeControl
+- Add analytics computation in frontend (use moves data)
+- Display charts in profile panel
+
+**Phase C: Profile Customization (Low)**
+- Add bio and favoriteOpening to user object
+- Add API endpoints to update these fields
+- Display in profile header
+
+**Phase D: Activity Feed (Medium)**
+- Add new WebSocket events for friend activity
+- Add "spectate" button for friends' games
+- Show notifications when friends come online
+
+### Why This Order
+- Phase A uses existing data with minimal risk
+- Phase B is visual and impressive but builds on Phase A data
+- Phase C is independent and low effort
+- Phase D requires WebSocket work but is most engaging socially
+
+## 4. IMPLEMENTATION STEPS
+
+### PHASE A: Game Replay & Export
+
+#### Step A1: Enhance Game Record Structure
+**Goal**: Add missing fields for analytics and more detail
+**Method**: Update `_updateGameStats` in worker.js to store timerDuration and compute timeControl
+
+In worker.js around line 830 (challenge creation), capture timerDuration:
+```javascript
+// Store timerDuration in game object
+game.timerDuration = timerDuration;
+game.timeControl = timerDuration <= 300 ? 'blitz' 
+               : timerDuration <= 600 ? 'rapid' 
+               : 'classical';
+```
+
+In `_updateGameStats` (line 1046), update record:
+```javascript
+const gameRecord = {
+  gameId: game.gameId,
+  type: game.type || 'pvp',
+  result: whiteResult,
+  timerDuration: game.timerDuration,     // NEW
+  timeControl: game.timeControl,     // NEW
+  moves: game.moves,                // already stored
+  fen: game.moves.length > 0 ? game.moves[game.moves.length - 1].fen : null
+  // ... existing fields
+};
+```
+
+**Reference**: `worker.js` lines 830, 1046-1054
+
+#### Step A2: Add Replay UI in Profile Panel
+**Goal**: Display clickable game list in history section with replay capability
+
+In index.html, update profile-history-section (line ~407):
+```html
+<div id="profile-history-section" style="display: none;">
+  <!-- NEW: Filter tabs -->
+  <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+    <button class="btn-cyber active" onclick="filterHistory('all')" style="flex:1;padding:6px;font-size:0.6rem;">ALL</button>
+    <button class="btn-cyber" onclick="filterHistory('win')" style="flex:1;padding:6px;font-size:0.6rem;">W</button>
+    <button class="btn-cyber" onclick="filterHistory('loss')" style="flex:1;padding:6px;font-size:0.6rem;">L</button>
+    <button class="btn-cyber" onclick="filterHistory('draw')" style="flex:1;padding:6px;font-size:0.6rem;">D</button>
+  </div>
+  <div id="profile-history-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto;"></div>
+</div>
+```
+
+**Reference**: `index.html` lines 407-409
+
+#### Step A3: Add Replay Functions
+**Goal**: Enable loading a game from history back onto the board
+
+In app.js, add:
+```javascript
+// Load game from history for replay
+function loadGameFromHistory(gameRecord) {
+  if (!gameRecord || !gameRecord.moves) return;
+  
+  // Reset game and replay moves
+  const tempGame = new Chess();
+  for (const move of gameRecord.moves) {
+    tempGame.move(move);
+  }
+  game = tempGame;
+  notationHistory = gameRecord.moves;
+  currentNotationIndex = notationHistory.length - 1;
+  isReviewingHistory = false;
+  
+  // Switch to analysis mode for replay
+  selectGameModeTab('analysis');
+  renderBoard();
+  renderNotation();
+  showNotification('Game loaded for review', 'success');
+}
+
+// Export game as PGN
+function exportGameAsPGN(gameRecord) {
+  if (!gameRecord || !gameRecord.moves) return '';
+  
+  const tempGame = new Chess();
+  let pgn = `[Event "NeonSkull Cyber-Chess"]
+[Site "Online"]
+[Date "${new Date(gameRecord.timestamp).toISOString().split('T')[0]}"]
+[White "${profileUser.username}"]
+[Black "${gameRecord.opponent.username}"]
+[Result "${gameRecord.result === 'win' ? '1-0' : gameRecord.result === 'loss' ? '0-1' : '1/2-1/2'}"]
+[TimeControl "${gameRecord.timerDuration || 600}"]
+[ECO "-"]
+
+`;
+
+  for (let i = 0; i < gameRecord.moves.length; i++) {
+    const move = gameRecord.moves[i];
+    tempGame.move(move);
+    if (i % 2 === 0) {
+      pgn += `${Math.floor(i/2) + 1}. `;
+    }
+    pgn += `${move.san} `;
+  }
+  
+  pgn += gameRecord.result === 'win' ? '1-0' 
+       : gameRecord.result === 'loss' ? '0-1' 
+       : '1/2-1/2';
+  
+  return pgn;
+}
+
+// Export game as shareable URL (simple base64)
+function shareGameURL(gameRecord) {
+  if (!gameRecord || !gameRecord.gameId) return '';
+  // Simple approach: use gameId as shareable reference
+  return `${window.location.origin}/?game=${gameRecord.gameId}`;
+}
+```
+
+**Reference**: `app.js` (new functions near profile functions ~line 2500)
+
+#### Step A4: Add Export API Endpoint
+**Goal**: Enable server-side game export
+
+In worker.js, add REST endpoint:
+```javascript
+// --- REST: Get Game Details ---
+if (url.pathname.startsWith('/api/game/') && request.method === 'GET') {
+  const gameId = url.pathname.replace('/api/game/', '');
+  // Could add direct game storage for sharing
+  return jsonResponse({ gameId, message: 'Game lookup not yet implemented - use client replay' });
+}
+```
+
+### PHASE B: Detailed Statistics Dashboard
+
+#### Step B1: Add Analytics to Frontend
+**Goal**: Compute and display win rates by time control, trends
+
+In app.js, add:
+```javascript
+// Compute detailed stats from gameHistory
+function computeDetailedStats(history) {
+  if (!history || history.length === 0) return null;
+  
+  const stats = {
+    total: history.length,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    byTimeControl: { blitz: { w:0,l:0,d:0 }, rapid: { w:0,l:0,d:0 }, classical: { w:0,l:0,d:0 } },
+    recentTrend: [],  // last 10 games: 'win', 'loss', 'draw'
+    avgGameLength: 0,
+    piecesCaptured: { w: 0, b: 0 }
+  };
+  
+  let totalMoves = 0;
+  
+  for (const game of history) {
+    if (game.result === 'win') stats.wins++;
+    else if (game.result === 'loss') stats.losses++;
+    else stats.draws++;
+    
+    // Time control breakdown
+    const tc = game.timeControl || 'rapid';
+    if (stats.byTimeControl[tc]) {
+      if (game.result === 'win') stats.byTimeControl[tc].w++;
+      else if (game.result === 'loss') stats.byTimeControl[tc].l++;
+      else stats.byTimeControl[tc].d++;
+    }
+    
+    // Game length
+    totalMoves += game.moves ? game.moves.length : 0;
+    
+    // Recent trend
+    if (stats.recentTrend.length < 10) {
+      stats.recentTrend.unshift(game.result);
+    }
+  }
+  
+  stats.avgGameLength = Math.round(totalMoves / history.length);
+  return stats;
+}
+
+// Render stats widgets in profile
+function renderDetailedStats(history) {
+  const stats = computeDetailedStats(history);
+  if (!stats) return;
+  
+  // Update UI elements
+  const statsContainer = document.getElementById('profile-stats-detail');
+  if (statsContainer) {
+    const winRate = Math.round((stats.wins / stats.total) * 100);
+    statsContainer.innerHTML = `
+      <div style="grid-template-columns:1fr 1fr;gap:8px;display:grid;">
+        <div class="stat-item">
+          <span class="stat-value">${winRate}%</span>
+          <span class="stat-label">Win Rate</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value">${stats.avgGameLength}</span>
+          <span class="stat-label">Avg Moves</span>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:0.65rem;color:var(--color-text-secondary);">
+        <div style="display:flex;gap:4px;">
+          <span style="color:#00ff88;">● ${stats.byTimeControl.blitz.w}</span>
+          <span style="color:#ff4466;">● ${stats.byTimeControl.blitz.l}</span>
+          <span>BLITZ</span>
+        </div>
+        <div style="display:flex;gap:4px;">
+          <span style="color:#00ff88;">● ${stats.byTimeControl.rapid.w}</span>
+          <span style="color:#ff4466;">● ${stats.byTimeControl.rapid.l}</span>
+          <span>RAPID</span>
+        </div>
+        <div style="display:flex;gap:4px;">
+          <span style="color:#00ff88;">● ${stats.byTimeControl.classical.w}</span>
+          <span style="color:#ff4466;">● ${stats.byTimeControl.classical.l}</span>
+          <span>CLASSICAL</span>
+        </div>
+      </div>
+    `;
+  }
+}
+```
+
+**Reference**: `app.js` new functions
+
+#### Step B2: Enable Filter Function
+**Goal**: Allow filtering history list
+
+In app.js, add:
+```javascript
+let currentHistoryFilter = 'all';
+let filteredHistory = [];
+
+function filterHistory(filter) {
+  currentHistoryFilter = filter;
+  if (!profileUser || !profileUser.gameHistory) {
+    filteredHistory = [];
+    return;
+  }
+  
+  if (filter === 'all') {
+    filteredHistory = profileUser.gameHistory;
+  } else {
+    filteredHistory = profileUser.gameHistory.filter(g => g.result === filter);
+  }
+  renderHistoryList(filteredHistory);
+}
+
+function renderHistoryList(history) {
+  const list = document.getElementById('profile-history-list');
+  if (!list) return;
+  
+  if (!history || history.length === 0) {
+    list.innerHTML = '<div style="font-size:0.75rem;color:var(--color-text-secondary);padding:10px;text-align:center;">No games found</div>';
+    return;
+  }
+  
+  let html = '';
+  for (const game of history.slice(0, 20)) {
+    const date = new Date(game.timestamp).toLocaleDateString();
+    const resultColor = game.result === 'win' ? '#00ff88' : game.result === 'loss' ? '#ff4466' : 'var(--color-accent-alt)';
+    html += `
+      <div class="history-item" onclick="loadGameFromHistory(${JSON.stringify(game).replace(/"/g, '&quot;')})" style="padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06);cursor:pointer;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:0.75rem;font-weight:bold;">${game.opponent.username}</div>
+            <div style="font-size:0.6rem;color:var(--color-text-secondary);">${date} · ${game.timeControl || 'rapid'}</div>
+          </div>
+          <div style="font-size:0.8rem;font-weight:bold;" class="result-${game.result}">${game.result.toUpperCase()}</div>
+        </div>
+      </div>
+    `;
+  }
+  list.innerHTML = html;
+}
+```
+
+### PHASE C: Profile Customization
+
+#### Step C1: Extend User Object
+**Goal**: Add bio and favoriteOpening fields
+
+In worker.js register endpoint (~line 117), add:
+```javascript
+const user = {
+  id: uuidv4(),
+  username: username.trim(),
+  passwordHash,
+  friends: [],
+  profilePicture: null,
+  bio: '',                    // NEW
+  favoriteOpening: null,       // NEW
+  preferredTheme: 'rave',     // NEW
+  gameHistory: [],
+  friendRequests: [],
+  outgoingRequests: [],
+  lastSeen: Date.now(),
+  rating: 1500,
+  stats: { won: 0, lost: 0, drawn: 0 }
+};
+```
+
+Also update login response (~line 151) to return these fields:
+```javascript
+return jsonResponse({
+  success: true,
+  user: {
+    id: user.id,
+    username: user.username,
+    rating: user.rating,
+    friends: user.friends,
+    profilePicture: user.profilePicture,
+    bio: user.bio,                      // NEW
+    favoriteOpening: user.favoriteOpening, // NEW
+    preferredTheme: user.preferredTheme, // NEW
+    gameHistory: user.gameHistory,
+    friendRequests: user.friendRequests,
+    outgoingRequests: user.outgoingRequests,
+    lastSeen: user.lastSeen,
+    stats: user.stats
+  }
+});
+```
+
+#### Step C2: Add Update Bio/Opening Endpoint
+**Goal**: Allow users to update their bio and favorite opening
+
+In worker.js, add REST endpoint:
+```javascript
+// --- REST: Update Profile Settings ---
+if (url.pathname === '/api/profile/update' && request.method === 'POST') {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader) return jsonResponse({ error: 'Authorization required' }, 401);
+  
+  const token = authHeader.replace('Bearer ', '');
+  const { bio, favoriteOpening, preferredTheme } = await request.json();
+  
+  const key = 'user:' + token.trim().toLowerCase();
+  const raw = await env.USERS_KV.get(key);
+  if (!raw) return jsonResponse({ error: 'User not found' }, 404);
+  
+  const user = JSON.parse(raw);
+  if (bio !== undefined) user.bio = bio.substring(0, 160);  // Max 160 chars
+  if (favoriteOpening !== undefined) user.favoriteOpening = favoriteOpening;
+  if (preferredTheme !== undefined) user.preferredTheme = preferredTheme;
+  
+  await env.USERS_KV.put(key, JSON.stringify(user));
+  return jsonResponse({ success: true, user: { bio: user.bio, favoriteOpening: user.favoriteOpening, preferredTheme: user.preferredTheme } });
+}
+```
+
+#### Step C3: Add UI for Bio/Opening
+**Goal**: Display editable bio and favorite opening in profile header
+
+In index.html, update profile header section (~line 350):
+```html
+<div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 14px;">
+  <!-- Avatar (existing) -->
+  <div id="profile-avatar-container" style="width: 60px; height: 60px; border-radius: 50%; background: var(--color-accent); display: flex; align-items: center; justify-content: center; overflow: hidden; border: 2px solid var(--color-accent);">
+    <img id="profile-avatar-img" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+    <i class="fa-solid fa-user-astronaut" style="font-size: 1.8rem; color: var(--color-bg);"></i>
+  </div>
+  
+  <!-- Username and Bio (updated) -->
+  <div style="flex: 1;">
+    <div style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem; font-weight: 700;" id="profile-username-display">—</div>
+    <div style="font-size: 0.65rem; color: var(--color-accent-alt);" id="profile-bio-display"></div>
+    <div style="font-size: 0.6rem; color: var(--color-text-secondary); margin-top: 2px;">
+      ⚡ ELO: <span id="profile-rating-display">1500</span>
+      <span id="profile-favorite-opening" style="margin-left: 8px;">· Favorite: —</span>
+    </div>
+  </div>
+  
+  <!-- Edit button -->
+  <button class="btn-cyber" onclick="editProfileSettings()" style="padding: 6px 10px; font-size: 0.65rem;">
+    <i class="fa-solid fa-pen"></i>
+  </button>
+  <input type="file" id="profile-picture-input" accept="image/*" style="display: none;" onchange="uploadProfilePicture(this)">
+</div>
+```
+
+Add edit modal in index.html (after profile-game-detail modal):
+```html
+<!-- Bio/Opening Edit Modal -->
+<div id="profile-edit-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); z-index: 1000; padding: 20px; overflow-y: auto;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <div style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem;">EDIT PROFILE</div>
+    <button class="btn-cyber" onclick="closeProfileEditModal()" style="padding: 6px 10px;"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  
+  <div style="display: flex; flex-direction: column; gap: 16px;">
+    <div>
+      <label class="control-label">BIO (MAX 160 CHARS)</label>
+      <textarea id="profile-bio-input" class="select-cyber" maxlength="160" placeholder="Tell others about yourself..." style="width: 100%; height: 80px; resize: none;"></textarea>
+    </div>
+    
+    <div>
+      <label class="control-label">FAVORITE OPENING</label>
+      <select id="profile-opening-select" class="select-cyber" style="width: 100%;">
+        <option value="">— Select —</option>
+        <option value="e4">1. e4 (King's Pawn)</option>
+        <option value="d4">1. d4 (Queen's Pawn)</option>
+        <option value="c4">1. c4 (English)</option>
+        <option value="Nf3">1. Nf3 (Reti)</option>
+        <option value="b3">1. b3 (English Accelerated)</option>
+        <option value="f4">1. f4 (Bird)</option>
+      </select>
+    </div>
+    
+    <button class="btn-cyber active" onclick="saveProfileSettings()" style="width: 100%; justify-content: center; padding: 12px;">
+      <i class="fa-solid fa-floppy-disk"></i> SAVE CHANGES
+    </button>
+  </div>
+</div>
+```
+
+#### Step C4: Add Save Functions in app.js
+**Goal**: Handle saving bio and favorite opening
+
+In app.js, add:
+```javascript
+function editProfileSettings() {
+  document.getElementById('profile-edit-modal').style.display = 'block';
+  document.getElementById('profile-bio-input').value = profileUser.bio || '';
+  document.getElementById('profile-opening-select').value = profileUser.favoriteOpening || '';
+}
+
+function closeProfileEditModal() {
+  document.getElementById('profile-edit-modal').style.display = 'none';
+}
+
+async function saveProfileSettings() {
+  const bio = document.getElementById('profile-bio-input').value.trim();
+  const favoriteOpening = document.getElementById('profile-opening-select').value;
+  
+  try {
+    const res = await fetch(API_BASE + '/api/profile/update', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + profileUser.username
+      },
+      body: JSON.stringify({ bio, favoriteOpening })
+    });
+    const data = await res.json();
+    
+    if (!res.ok) {
+      showNotification(data.error || 'Error saving profile', 'error');
+      return;
+    }
+    
+    profileUser.bio = bio;
+    profileUser.favoriteOpening = favoriteOpening;
+    updateProfileDisplay();
+    closeProfileEditModal();
+    showNotification('Profile updated!', 'success');
+  } catch (err) {
+    showNotification('Error saving profile', 'error');
+  }
+}
+```
+
+### PHASE D: Activity Feed
+
+#### Step D1: Add Friend Activity WebSocket Events
+**Goal**: Track and broadcast when friends play games
+
+In worker.js, add new message types:
+
+```javascript
+case 'friend-game-started': {
+  // Notify friends when user starts a game
+  const { gameId, timerDuration } = payload;
+  const conn = this.connections.get(socketId);
+  if (!conn) return;
+  
+  // Get friends list
+  const userKey = 'user:' + conn.user.username.toLowerCase();
+  const userRaw = await this.env.USERS_KV.get(userKey);
+  if (!userRaw) break;
+  const user = JSON.parse(userRaw);
+  
+  // Broadcast to online friends - need usernameIndex
+  for (const friendName of user.friends || []) {
+    const friendSocketId = this.usernameIndex.get(friendName.toLowerCase());
+    if (friendSocketId) {
+      const friendConn = this.connections.get(friendSocketId);
+      if (friendConn) {
+        this._send(friendConn.ws, 'friend-game-activity', {
+          username: conn.user.username,
+          activity: 'started',
+          gameId,
+          timerDuration,
+          timestamp: Date.now()
+        });
+      }
+    }
+  }
+  break;
+}
+
+case 'friend-game-ended': {
+  // Notify friends when user finishes a game
+  const { gameId, result, ratingChange } = payload;
+  const conn = this.connections.get(socketId);
+  if (!conn) return;
+  // Similar broadcast to friends
+  break;
+}
+
+// Track userId to username index
+this.userIndex.set(user.id, socketId);
+// Also track username for friend lookups - add this to constructor
+this.usernameIndex = new Map();
+this.usernameIndex.set(user.username.toLowerCase(), socketId);
+```
+
+In webSocketClose, clean up (~line 959):
+```javascript
+async webSocketClose(ws, code, reason, wasClean) {
+  // ... existing code
+  if (conn) {
+    this.usernameIndex.delete(conn.user.username.toLowerCase());
+  }
+}
+```
+
+#### Step D2: Add Activity Feed UI
+**Goal**: Show friends' recent activity in profile
+
+In index.html, add to profile panel (after friends list):
+```html
+<div id="profile-activity-section" style="display: none;">
+  <div style="font-family: 'Orbitron', sans-serif; font-size: 0.65rem; letter-spacing: 1px; color: var(--color-accent-alt); margin-bottom: 6px;">RECENT ACTIVITY</div>
+  <div id="activity-feed-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto;"></div>
+</div>
+```
+
+Add sub-tab for activity:
+```html
+<div style="display: flex; gap: 6px; margin-bottom: 12px;">
+  <button class="btn-cyber active" id="profile-tab-friends" onclick="profileShowSubTab('friends')" style="flex: 1; justify-content: center; padding: 8px 4px; font-size: 0.7rem;">FRIENDS</button>
+  <button class="btn-cyber" id="profile-tab-history" onclick="profileShowSubTab('history')" style="flex: 1; justify-content: center; padding: 8px 4px; font-size: 0.7rem;">HISTORY</button>
+  <button class="btn-cyber" id="profile-tab-activity" onclick="profileShowSubTab('activity')" style="flex: 1; justify-content: center; padding: 8px 4px; font-size: 0.7rem;">ACTIVITY</button>
+</div>
+```
+
+#### Step D3: Handle Activity Events in app.js
+**Goal**: Display and respond to friend activity
+
+In app.js, add:
+```javascript
+let friendActivityFeed = [];
+
+// Handle incoming friend activity
+if (message.type === 'friend-game-activity') {
+  const { username, activity, gameId, timerDuration, result, ratingChange, timestamp } = message.payload;
+  const activityItem = { username, activity, gameId, timerDuration, result, ratingChange, timestamp };
+  friendActivityFeed.unshift(activityItem);
+  if (friendActivityFeed.length > 10) friendActivityFeed.pop();
+  renderActivityFeed();
+  
+  // Show notification for new activity
+  if (activity === 'started') {
+    showNotification(`${username} started a game!`, 'info');
+  } else if (activity === 'ended') {
+    showNotification(`${username} finished: ${result}`, 'info');
+  }
+}
+
+function renderActivityFeed() {
+  const list = document.getElementById('activity-feed-list');
+  if (!list) return;
+  
+  if (!friendActivityFeed || friendActivityFeed.length === 0) {
+    list.innerHTML = '<div style="font-size:0.75rem;color:var(--color-text-secondary);padding:10px;text-align:center;">No recent activity</div>';
+    return;
+  }
+  
+  let html = '';
+  for (const act of friendActivityFeed) {
+    const timeAgo = getTimeAgo(act.timestamp);
+    if (act.activity === 'started') {
+      html += `
+        <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:0.7rem;">
+          <span style="font-weight:bold;">${act.username}</span> started a ${act.timerDuration >= 600 ? 'rapid' : 'blitz'} game
+          <span style="color:var(--color-text-secondary);margin-left:4px;">· ${timeAgo}</span>
+        </div>
+      `;
+    } else if (act.activity === 'ended') {
+      html += `
+        <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:0.7rem;">
+          <span style="font-weight:bold;">${act.username}</span> ${act.result} (+${act.ratingChange || 0})
+          <span style="color:var(--color-text-secondary);margin-left:4px;">· ${timeAgo}</span>
+        </div>
+      `;
+    }
+  }
+  list.innerHTML = html;
+}
+
+function getTimeAgo(timestamp) {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return 'now';
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm';
+  if (seconds < 86400) return Math.floor(seconds / 3600) + 'h';
+  return Math.floor(seconds / 86400) + 'd';
+}
+```
+
+#### Step D4: Spectate Friend's Game
+**Goal**: Watch a friend's live game
+
+In app.js, add:
+```javascript
+// Spectate a friend's game
+function spectateFriendGame(gameId) {
+  // For now, just show a message
+  showNotification('Spectating coming soon!', 'info');
+  // Real implementation would connect to game's WebSocket stream
+}
+```
+
+In activity feed HTML (from Step D2), add click-to-spectate:
+```html
+<div onclick="spectateFriendGame('${act.gameId}')" style="cursor:pointer;...
+```
+
+## 5. TESTING AND VALIDATION
+
+### Feature Validation Checklist
+
+**Phase A - Game Replay & Export:**
+- [ ] Open profile → History tab shows recent games
+- [ ] Click on a game → Board loads with game position displayed
+- [ ] Use arrow keys → Navigate through game moves (existing notation review)
+- [ ] Export PGN → Downloads valid PGN file (check with chess.com import)
+- [ ] Filter buttons → Filter correctly shows W/L/D only
+
+**Phase B - Statistics:**
+- [ ] Win rate percentage displays correctly (wins/total * 100)
+- [ ] Avg game length displays (total moves / games)
+- [ ] Time control breakdown shows blitz/rapid/classical counts
+
+**Phase C - Profile Customization:**
+- [ ] Click pen icon → Edit modal opens
+- [ ] Enter bio (160 char max) → Saves correctly
+- [ ] Select favorite opening → Shows on profile header
+- [ ] Logout and login → Bio and opening persist
+
+**Phase D - Activity Feed:**
+- [ ] Friend starts game → Notification appears (when friend online)
+- [ ] Activity tab shows recent activity
+- [ ] Click spectate → Attempts to join game (placeholder)
+
+### Test Scenarios
+
+1. **New user registration**: Check bio, favoriteOpening default to null/empty
+2. **Multiple games**: Verify win rate calculation across 10+ games
+3. **Time control**: Play blitz (3min) and rapid (10min), verify classification correct
+4. **Export**: Import exported PGN into chess.com - verify moves match
+5. **Two users**: Both online, start game → other sees activity notification
+
+---
+
+# Original Profile Plan (Phase 1)
 
 # 2. CONTEXT SUMMARY
 **Existing System:**
