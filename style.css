@@ -146,7 +146,7 @@
 
 [data-theme="chesscom"] .coord-rank,
 [data-theme="chesscom"] .coord-file {
-  font-family: Arial, Helvetica, sans-serif !important;
+  font-family: 'Inter', sans-serif !important;
   opacity: 0.85 !important;
 }
 
@@ -218,7 +218,7 @@ body {
     linear-gradient(rgba(255, 255, 255, 0.005) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.005) 1px, transparent 1px);
   background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', sans-serif;
   color: var(--color-text-primary);
   min-height: 100vh;
   margin: 0;
@@ -338,7 +338,7 @@ body {
 }
 
 .nav-tab-cyber .tab-label {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -435,7 +435,7 @@ body {
 }
 
 .drawer-header-cyber h2 {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 1.1rem;
   font-weight: 800;
   letter-spacing: 1px;
@@ -515,7 +515,7 @@ body {
 }
 
 .brand h1 {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 1.6rem;
   font-weight: 900;
   letter-spacing: 2px;
@@ -536,7 +536,7 @@ body {
   background: transparent;
   border: 1px solid var(--color-accent);
   color: var(--color-text-primary);
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   padding: 8px 16px;
   border-radius: 8px;
   font-size: 0.85rem;
@@ -646,7 +646,7 @@ body {
 }
 
 .player-name {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: 1px;
@@ -669,7 +669,7 @@ body {
 }
 
 .player-timer {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 1.4rem;
   font-weight: 900;
   color: var(--player-time-color, var(--color-white-piece));
@@ -725,7 +725,7 @@ body {
 .coord-rank,
 .coord-file {
   position: absolute;
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.55rem;
   font-weight: 700;
   opacity: 0.25;
@@ -855,7 +855,7 @@ body {
 }
 
 .panel-title {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 1.1rem;
   font-weight: 700;
   letter-spacing: 1px;
@@ -905,7 +905,7 @@ body {
   color: var(--color-text-primary);
   padding: 10px 14px;
   border-radius: 8px;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 0.85rem;
   cursor: pointer;
   outline: none;
@@ -1035,7 +1035,7 @@ body {
 }
 
 .modal-cyber h2 {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 2rem;
   font-weight: 900;
   margin-bottom: 12px;
@@ -1135,7 +1135,7 @@ body {
 
 .ai-thinking-text {
   margin-top: 15px;
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: 2px;
@@ -1174,7 +1174,7 @@ body {
   position: absolute;
   top: 6px;
   right: 10px;
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.55rem;
   font-weight: 900;
   letter-spacing: 1px;
@@ -1186,7 +1186,7 @@ body {
 }
 
 .daily-mission-title {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--color-text-primary);
@@ -1209,7 +1209,7 @@ body {
 }
 
 .rating-badge {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--color-accent);
@@ -1263,7 +1263,7 @@ body {
 }
 
 .stat-value {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 1.15rem;
   font-weight: 900;
   color: var(--color-accent-alt);
@@ -1309,7 +1309,7 @@ body {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.7rem;
   font-weight: 700;
   padding: 5px 12px;
@@ -1401,7 +1401,7 @@ body {
 }
 
 .mission-title-text {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -1460,7 +1460,7 @@ body {
 }
 
 .step-label {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 1px;
@@ -1505,7 +1505,7 @@ body {
   background: rgba(3, 2, 7, 0.85);
   border: 4px double #39ff14;
   color: #39ff14;
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 1.6rem;
   font-weight: 900;
   letter-spacing: 3px;
@@ -1626,7 +1626,7 @@ footer {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   letter-spacing: 1px;
 }
 
@@ -1694,7 +1694,7 @@ footer i {
   left: 0;
   right: 0;
   text-align: center;
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.55rem;
   font-weight: 800;
   color: #ffffff;
@@ -1783,7 +1783,7 @@ footer i {
 }
 
 .notation-sidebar-title {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 1px;
@@ -1837,7 +1837,7 @@ footer i {
   color: var(--color-text-secondary);
   font-size: 0.8rem;
   padding: 40px 20px;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', sans-serif;
 }
 
 .notation-row {
@@ -1859,7 +1859,7 @@ footer i {
 }
 
 .notation-move-num {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-text-secondary);
@@ -1868,7 +1868,7 @@ footer i {
 }
 
 .notation-move {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 0.85rem;
   color: var(--color-text-primary);
   padding: 2px 6px;
@@ -1910,7 +1910,7 @@ footer i {
 }
 
 .notation-result {
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 1px;
@@ -1949,7 +1949,7 @@ footer i {
   border: 1px solid var(--color-accent-alt);
   border-radius: 8px;
   padding: 8px 16px;
-  font-family: Roboto, 'Avenir Next', Avenir, sans-serif;
+  font-family: 'Orbitron', sans-serif;
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 1px;
