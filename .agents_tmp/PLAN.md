@@ -6,6 +6,7 @@ Expand the existing user profile feature with four new capability areas:
 2. **Game Replay & Export** — Replay past games, share game URLs, export as PGN
 3. **Profile Customization** — Custom bio, favorite opening, theme preferences stored server-side
 4. **Activity Feed** — Friends' recent games, online status notifications, spectate games
+5. **Chess.com-Style Game Review** — Move-by-move analysis, accuracy score, win probability graph, best move comparison, enriched timeline
 
 ## 2. CONTEXT SUMMARY
 
@@ -83,8 +84,240 @@ Expand the existing user profile feature with four new capability areas:
 - Phase B is visual and impressive but builds on Phase A data
 - Phase C is independent and low effort
 - Phase D requires WebSocket work but is most engaging socially
+- Phase E uses existing Stockfish analysis, builds on Phase A replay
 
 ## 4. IMPLEMENTATION STEPS
+
+### PHASE E: Chess.com-Style Game Review
+
+#### Step E1: Store Analysis Data with Each Move
+**Goal**: Capture Stockfish evaluation for every move in game history
+**Method**: Extend game record to store move analysis
+
+In worker.js, enhance game record structure:
+```javascript
+const gameRecord = {
+  gameId: game.gameId,
+  type: game.type || 'pvp',
+  result: whiteResult,
+  timerDuration: game.timerDuration,
+  timeControl: game.timeControl,
+  moves: game.moves,  // already: [{ san, from, to, flags, fen }]
+  // NEW: Add analysis per move
+  moveAnalysis: [],  // [{ eval, bestMove, classification, winProb }]
+  finalEval: null,    // Stockfish's final evaluation
+  accuracy: null,    // Player's accuracy percentage
+  fen: game.moves.length > 0 ? game.moves[game.moves.length - 1].fen : null
+  // ... existing fields
+};
+```
+
+Also add `moveAnalysis` and `accuracy` to stored moves:
+```javascript
+// In game object during play:
+game.moveAnalysis = game.moveAnalysis || [];
+game.accuracy = null;
+```
+
+**Reference**: `worker.js` lines 856-865 (make-move handler), 1046-1054 (gameRecord)
+
+#### Step E2: Run Analysis After Each Move
+**Goal**: Get Stockfish's best move and evaluation when moves are made
+**Method**: Call analysis engine during make-move in online games
+
+In worker.js make-move handler (~line 856), after recording move:
+```javascript
+case 'make-move': {
+  const { gameId, move, fen } = payload;
+  // ... existing move recording ...
+  
+  // NEW: Run Stockfish analysis on resulting position
+  // Note: Requires Stockfish worker accessible from main thread
+  // For now, defer to game-end analysis
+  break;
+}
+```
+
+**Alternative**: Run analysis client-side in app.js when reviewing game:
+- When loading game for review, iterate through moves
+- Run Stockfish analysis at each position
+- Cache results for display
+
+**Reference**: `app.js` analysis mode (Worker-based Stockfish)
+
+#### Step E3: Move Classification Logic
+**Goal**: Categorize each move as Brilliant/Good/Mistake/Blunder
+**Method**: Compare player's move eval vs Stockfish's top move
+
+In app.js, add:
+```javascript
+// Classification thresholds (in centipawns)
+const MOVE_CLASSIFICATION = {
+  BRILLIANT: -150,    // Stockfish missed this, player found it (great sacrifice or tactic)
+  GOOD: -50,          // Player's move within 50cp of top
+  INACCURACY: -100,   // 50-100cp worse than best
+  MISTAKE: -200,     // 100-200cp worse
+  BLUNDER: -999      // >200cp worse or loses significant material
+};
+
+function classifyMove(playerEval, stockfishEval, playerMove, stockfishMove) {
+  const diff = stockfishEval - playerEval;
+  
+  // Check for brilliant (player found move Stockfish didn't see as top)
+  if (stockfishMove && playerMove !== stockfishMove) {
+    // If player found a move with positive eval Stockfish had lower
+    if (diff <= MOVE_CLASSIFICATION.BRILLIANT) return 'brilliant';
+  }
+  
+  if (diff <= 30) return 'good';
+  if (diff <= 70) return 'inaccuracy';
+  if (diff <= 150) return 'mistake';
+  return 'blunder';
+}
+```
+
+**Reference**: `app.js` new functions
+
+#### Step E4: Accuracy Score Calculation
+**Goal**: Show overall accuracy percentage
+**Method**: Count non-blunders/mistakes as "accurate" moves
+
+In app.js, add:
+```javascript
+function calculateAccuracy(moveAnalysis) {
+  if (!moveAnalysis || moveAnalysis.length === 0) return null;
+  
+  let accurateMoves = 0;
+  for (const move of moveAnalysis) {
+    // Good, Brilliant, and Inaccuracies count somewhat
+    // Mistake = 50% credit, Blunder = 0%
+    if (move.classification === 'brilliant') accurateMoves += 1.0;
+    else if (move.classification === 'good') accurateMoves += 1.0;
+    else if (move.classification === 'inaccuracy') accurateMoves += 0.5;
+    else if (move.classification === 'mistake') accurateMoves += 0.25;
+    // blunder = 0
+  }
+  
+  return Math.round((accurateMoves / moveAnalysis.length) * 100);
+}
+```
+
+#### Step E5: Win Probability Graph
+**Goal**: Visual eval trend chart
+**Method**: Plot eval over game moves
+
+In app.js, add:
+```javascript
+function renderWinProbabilityGraph(moveAnalysis) {
+  if (!moveAnalysis || moveAnalysis.length === 0) return '';
+  
+  // Convert centipawn eval to win probability
+  // Formula: 50 + 50 * tanh(eval / 300)
+  let dataPoints = moveAnalysis.map((m, i) => {
+    const winProb = 50 + 50 * Math.tanh((m.eval || 0) / 300);
+    return { move: i + 1, probability: winProb };
+  });
+  
+  // Render as SVG line graph
+  const width = 280;
+  const height = 60;
+  const points = dataPoints.map((d, i) => {
+    const x = (i / (dataPoints.length - 1)) * width;
+    const y = height - (d.probability / 100) * height;
+    return `${x},${y}`;
+  }).join(' ');
+  
+  return `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:60px;">
+      <polyline fill="none" stroke="#00ff88" stroke-width="2" points="${points}" />
+      <line x1="0" y1="${height/2}" x2="${width}" y2="${height/2}" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+    </svg>
+  `;
+}
+```
+
+#### Step E6: Enriched Move Timeline UI
+**Goal**: Show moves with icons and eval in review panel
+**Method**: Enhance existing history list with analysis icons
+
+In index.html, update history item rendering:
+```html
+<!-- In renderHistoryList, add classification icons -->
+<div class="history-item" onclick="loadGameFromHistory(gameRecord)" style="...">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <div style="font-weight:bold;">${game.opponent.username}</div>
+      <div style="font-size:0.6rem;color:var(--color-text-secondary);">${date} · ${game.timeControl || 'rapid'}</div>
+    </div>
+    <!-- NEW: Accuracy badge -->
+    ${game.accuracy ? `<div class="accuracy-badge" style="background:${getAccuracyColor(game.accuracy)};">${game.accuracy}%</div>` : ''}
+  </div>
+  <div class="move-timeline" style="margin-top:6px;display:flex;gap:2px;overflow-x:auto;">
+    ${game.moveAnalysis ? game.moveAnalysis.slice(0,20).map((m, i) => `
+      <div class="move-chip ${m.classification || ''}" title="${m.san}" style="font-size:0.5rem;padding:2px 3px;border-radius:3px;background:${getMoveChipColor(m.classification)};">${m.san}</div>
+    `).join('') : ''}
+  </div>
+</div>
+```
+
+Add helper functions for colors:
+```javascript
+function getAccuracyColor(accuracy) {
+  if (accuracy >= 90) return '#00ff88';
+  if (accuracy >= 70) return '#ffcc00';
+  return '#ff4466';
+}
+
+function getMoveChipColor(classification) {
+  switch (classification) {
+    case 'brilliant': return '#00ff88';
+    case 'good': return '#00ff88';
+    case 'inaccuracy': return '#ffcc00';
+    case 'mistake': return '#ff8800';
+    case 'blunder': return '#ff4466';
+    default: return 'rgba(255,255,255,0.1)';
+  }
+}
+```
+
+#### Step E7: Game Review Modal with All Analysis
+**Goal**: Full review panel like chess.com
+**Method**: Expand existing profile-game-detail modal
+
+In index.html, enhance game detail modal (~line 412):
+```html
+<div id="profile-game-detail" style="display: none; position: fixed; ...">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <div style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem;">GAME DETAILS</div>
+    <button class="btn-cyber" onclick="closeProfileGameDetail()"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  
+  <!-- NEW: Review Stats Header -->
+  <div class="review-stats" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+    <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;">
+      <div class="accuracy-score" style="font-family:'Orbitron',sans-serif;font-size:1.2rem;color:${getAccuracyColor(game.accuracy)};">${game.accuracy || '--'}%</div>
+      <div style="font-size:0.6rem;color:var(--color-text-secondary);">ACCURACY</div>
+    </div>
+    <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;">
+      <div class="blunder-count" style="font-family:'Orbitron',sans-serif;font-size:1.2rem;color:#ff4466;">${blunderCount}</div>
+      <div style="font-size:0.6rem;color:var(--color-text-secondary);">BLUNDERS</div>
+    </div>
+    <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;">
+      <div class="win-prob-trend" style="color:#00ff88;">${game.finalEval > 0 ? '+' : ''}${game.finalEval}</div>
+      <div style="font-size:0.6rem;color:var(--color-text-secondary);">FINAL EVAL</div>
+    </div>
+  </div>
+  
+  <!-- NEW: Win Probability Graph -->
+  <div style="margin-bottom: 16px;">
+    <div style="font-size:0.65rem;color:var(--color-accent-alt);margin-bottom:4px;">WIN PROBABILITY</div>
+    ${renderWinProbabilityGraph(game.moveAnalysis)}
+  </div>
+  
+  <!-- Move List with Classifications -->
+  <div id="profile-game-detail-content" style="display: flex; flex-direction: column; gap: 12px;"></div>
+</div>
+```
 
 ### PHASE A: Game Replay & Export
 
@@ -741,6 +974,14 @@ In activity feed HTML (from Step D2), add click-to-spectate:
 - [ ] Activity tab shows recent activity
 - [ ] Click spectate → Attempts to join game (placeholder)
 
+**Phase E - Chess.com-Style Game Review:**
+- [ ] Click game → Stockfish analyzes each position
+- [ ] Move chips show with colors (green=good, red=blunder, yellow=inaccuracy)
+- [ ] Accuracy % displays on history item badges
+- [ ] Win probability graph renders as SVG line chart
+- [ ] Game detail modal shows: Accuracy score, Blunders count, Final eval
+- [ ] "Brilliant" moves detected and highlighted
+
 ### Test Scenarios
 
 1. **New user registration**: Check bio, favoriteOpening default to null/empty
@@ -748,6 +989,13 @@ In activity feed HTML (from Step D2), add click-to-spectate:
 3. **Time control**: Play blitz (3min) and rapid (10min), verify classification correct
 4. **Export**: Import exported PGN into chess.com - verify moves match
 5. **Two users**: Both online, start game → other sees activity notification
+
+**Phase E - Game Review Test Scenarios:**
+1. **Load game for review** → Click any past game → Stockfish analyzes each position → classifications appear
+2. **Accuracy display** → Verify accuracy % shows in history list and detail modal
+3. **Win probability graph** → Verify SVG graph renders with eval trend line
+4. **Move chips** → Blunders in red, good in green, inaccuracies in yellow
+5. **Brilliant detection** → Play a tactic Stockfish misses → should show as "brilliant"
 
 ---
 
