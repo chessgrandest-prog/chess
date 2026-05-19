@@ -1576,15 +1576,13 @@ function updateCapturedPieces() {
 // -------------------------------------------------------------------------
 // CLICK & ADVANCED POINTER DRAG INTERACTION HANDLERS
 // -------------------------------------------------------------------------
-// Analysis mode state - separate from main game
-let isInAnalysis = false;  // true when making moves while reviewing history
-let analysisGame = null;   // Separate Chess instance for analysis moves
-let analysisHistory = [];  // Variation moves while analyzing
-
 function onTileClick(square) {
-  // When reviewing history, switch to analysis mode without affecting main game
+  // Allow move review navigation for analysis/practice even when reviewing history
   if (isReviewingHistory) {
-    enterAnalysisMode();
+    // When reviewing, allow continuing from any position
+    // Update the game state to continue from this point
+    notationGoTo(currentNotationIndex);
+    // Then allow the move - fall through to normal handling
   }
   
   if (isAITurn) return;
@@ -1594,22 +1592,15 @@ function onTileClick(square) {
 
   const piece = game.get(square);
 
-  // In analysis mode, show moves from analysis game
-  const currentGame = isInAnalysis ? analysisGame : game;
-
   if (possibleMoves.some(m => m.to === square)) {
     const moveDetails = possibleMoves.find(m => m.to === square);
-    if (isInAnalysis) {
-      executeAnalysisMove(moveDetails);
-    } else {
-      executePlayerMove(moveDetails);
-    }
+    executePlayerMove(moveDetails);
     return;
   }
 
-  if (piece && piece.color === (currentGame ? currentGame.turn() : game.turn())) {
+  if (piece && piece.color === game.turn()) {
     selectedSquare = square;
-    possibleMoves = (currentGame || game).moves({ square: square, verbose: true });
+    possibleMoves = game.moves({ square: square, verbose: true });
     renderBoard();
   } else {
     selectedSquare = null;
@@ -1621,24 +1612,21 @@ function onTileClick(square) {
 function onPointerDown(e) {
   if (isAITurn) return;
   
-  // When reviewing history, switch to analysis mode without affecting main game
+  // When reviewing history, allow making moves for any side
   if (isReviewingHistory) {
-    enterAnalysisMode();
+    notationGoTo(currentNotationIndex);
   }
   
   if (window._onlineMode && game.turn() !== window._onlineColor) return;
   if (e.button !== 0) return; // Only drag pieces with left-click!
-  
-  // Use analysis game if in analysis mode
-  const currentGame = isInAnalysis ? analysisGame : game;
-  if (!currentGame) return;
-  
+  e.stopPropagation();
+  e.preventDefault();
+
   const pieceContainer = e.currentTarget;
   const square = pieceContainer.dataset.square;
-  const piece = currentGame.get(square);
+  const piece = game.get(square);
 
-  // Check piece color against the game that's being used (main or analysis)
-  if (piece && piece.color === currentGame.turn()) {
+  if (piece && piece.color === game.turn()) {
     isDragging = true;
     dragStartSquare = square;
 
@@ -1692,12 +1680,7 @@ function onPointerUp(e) {
     const moveDetails = possibleMoves.find(m => m.from === dragStartSquare && m.to === toSquare);
 
     if (moveDetails) {
-      // Execute in analysis or main game
-      if (isInAnalysis) {
-        executeAnalysisMove(moveDetails);
-      } else {
-        executePlayerMove(moveDetails);
-      }
+      executePlayerMove(moveDetails);
       return;
     }
 
@@ -1731,12 +1714,12 @@ function executePlayerMove(moveDetails) {
   selectedSquare = null;
   possibleMoves = [];
 
-  // If reviewing history, switch to analysis mode instead of modifying main game
+  // Exit review mode when making a new move from history position
   if (isReviewingHistory) {
-    enterAnalysisMode();
-    // Then execute the move in analysis mode
-    executeAnalysisMove(moveDetails);
-    return;
+    // Truncate history at current position and add new move here
+    notationHistory = notationHistory.slice(0, currentNotationIndex + 1);
+    isReviewingHistory = false;
+    updateReviewBanner();
   }
 
   if (typeof clearDrawingOverlay === 'function') {
@@ -4075,79 +4058,6 @@ function notationGoTo(index) {
   updateClockDisplay();
 }
 
-// Enter analysis mode - create a branch without affecting main game
-function enterAnalysisMode() {
-  // Clone the current game state for analysis
-  analysisGame = new Chess();
-  
-  // Copy all moves up to current position
-  for (const move of notationHistory.slice(0, currentNotationIndex + 1)) {
-    analysisGame.move(move);
-  }
-  
-  // Initialize empty analysis history for this variation
-  analysisHistory = [];
-  
-  // Switch to analysis mode
-  isInAnalysis = true;
-  
-  // Show analysis indicator
-  showAnalysisModeIndicator();
-  
-  // Render the board with analysis game state
-  renderBoard();
-  renderNotation();
-  
-  writeLog('<span style="color: var(--color-accent)">← Analysis branch: Use arrow keys to navigate, Escape to exit</span>');
-}
-
-// Exit analysis mode and return to main game
-function exitAnalysisMode() {
-  if (!isInAnalysis) return;
-  
-  isInAnalysis = false;
-  analysisGame = null;
-  analysisHistory = [];
-  
-  // Return to the end of main game
-  notationGoToEnd();
-  
-  writeLog('<span style="color: var(--color-success)">← Returned to main game</span>');
-}
-
-// Show analysis mode indicator  
-function showAnalysisModeIndicator() {
-  const banner = document.getElementById('notation-reviewing-banner');
-  if (banner) {
-    banner.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> ANALYSIS';
-    banner.classList.add('active');
-  }
-}
-
-// Execute move in analysis mode - creates branch without affecting main game
-function executeAnalysisMove(moveDetails) {
-  if (!isInAnalysis || !analysisGame) return;
-  
-  // Make the move in analysis game
-  const move = analysisGame.move({
-    from: moveDetails.from,
-    to: moveDetails.to,
-    promotion: moveDetails.flags.includes('p') ? 'q' : undefined
-  });
-  
-  if (move) {
-    // Add to analysis history (the branch)
-    analysisHistory.push(move);
-    
-    // Update the display
-    renderBoard();
-    renderNotation();
-    
-    // Show the variation being analyzed
-    writeLog(`<span style="color: var(--color-accent)">Analysis: ${move.san}</span>`);
-  }
-}
-
 function notationStepBack() {
   if (currentNotationIndex < 0) return;
   notationGoTo(currentNotationIndex - 1);
@@ -4186,16 +4096,9 @@ function updateReviewBanner() {
   const banner = document.getElementById('notation-reviewing-banner');
   if (!banner) return;
   
-  if (isInAnalysis) {
-    // Already in analysis mode - different indicator
-    banner.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> ANALYSIS';
-    banner.classList.add('active');
-  } else if (isReviewingHistory) {
-    // Just reviewing, hasn't made a move yet
-    banner.innerHTML = '<i class="fa-solid fa-clock-rotate-left"></i> REVIEWING';
+  if (isReviewingHistory) {
     banner.classList.add('active');
   } else {
-    banner.innerHTML = '';
     banner.classList.remove('active');
   }
 }
@@ -4204,13 +4107,6 @@ function updateReviewBanner() {
 document.addEventListener('keydown', (e) => {
   // Only navigate if not in an input field
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  
-  // Escape exits analysis mode
-  if (e.key === 'Escape' && isInAnalysis) {
-    exitAnalysisMode();
-    e.preventDefault();
-    return;
-  }
   
   if (e.key === 'ArrowLeft') {
     notationStepBack();
