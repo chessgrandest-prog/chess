@@ -472,6 +472,33 @@
                   <div style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem;">GAME DETAILS</div>
                   <button class="btn-cyber" onclick="closeProfileGameDetail()" style="padding: 6px 10px;"><i class="fa-solid fa-xmark"></i></button>
                 </div>
+                
+                <!-- Review Stats Header -->
+                <div id="game-review-stats" style="display: none; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+                  <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <div id="review-accuracy" style="font-family: 'Orbitron', sans-serif; font-size: 1.2rem;">--%</div>
+                    <div style="font-size: 0.6rem; color: var(--color-text-secondary);">ACCURACY</div>
+                  </div>
+                  <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <div id="review-blunders" style="font-family: 'Orbitron', sans-serif; font-size: 1.2rem; color: #ff4466;">0</div>
+                    <div style="font-size: 0.6rem; color: var(--color-text-secondary);">BLUNDERS</div>
+                  </div>
+                  <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <div id="review-eval" style="font-family: 'Orbitron', sans-serif; font-size: 1.2rem; color: #00ff88;">+0.0</div>
+                    <div style="font-size: 0.6rem; color: var(--color-text-secondary);">FINAL EVAL</div>
+                  </div>
+                </div>
+                
+                <!-- Win Probability Graph -->
+                <div id="game-review-graph" style="display: none; margin-bottom: 16px;">
+                  <div style="font-size: 0.65rem; color: var(--color-accent-alt); margin-bottom: 4px;">WIN PROBABILITY</div>
+                  <div id="win-prob-graph"></div>
+                </div>
+                
+                <button class="btn-cyber" id="btn-analyze-game" onclick="runGameAnalysis()" style="width: 100%; justify-content: center; padding: 10px; margin-bottom: 16px; display: none;">
+                  <i class="fa-solid fa-magnifying-glass"></i> ANALYZE GAME
+                </button>
+                
                 <div id="profile-game-detail-content" style="display: flex; flex-direction: column; gap: 12px;"></div>
               </div>
 

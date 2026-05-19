@@ -1319,6 +1319,170 @@ function writeLog(message, isEngine = false) {
   container.scrollTop = container.scrollHeight;
 }
 
+// ============================================================================
+// GAME REVIEW - Move Classification & Analysis (Chess.com Style)
+// ============================================================================
+
+// Classification thresholds (in centipawns)
+const MOVE_CLASSIFICATION = {
+  BRILLIANT: -150,   // Player found tactic Stockfish missed (great sacrifice)
+  GOOD: -50,        // Player's move within 50cp of top
+  INACCURACY: -100, // 50-100cp worse than best
+  MISTAKE: -200,   // 100-200cp worse than best
+  BLUNDER: -999    // >200cp worse or loses significant material
+};
+
+// Classify a move based on evaluation difference
+function classifyMove(playerEvalCp, stockfishEvalCp) {
+  if (playerEvalCp === null || stockfishEvalCp === null) return 'good';
+  const diff = stockfishEvalCp - playerEvalCp;
+  if (diff <= MOVE_CLASSIFICATION.BRILLIANT) return 'brilliant';
+  if (diff <= 30) return 'good';
+  if (diff <= 70) return 'inaccuracy';
+  if (diff <= 150) return 'mistake';
+  return 'blunder';
+}
+
+// Get color for move classification
+function getMoveChipColor(classification) {
+  switch (classification) {
+    case 'brilliant': return '#00ff88';
+    case 'good': return '#00cc66';
+    case 'inaccuracy': return '#ffcc00';
+    case 'mistake': return '#ff8800';
+    case 'blunder': return '#ff4466';
+    default: return 'rgba(255,255,255,0.1)';
+  }
+}
+
+// Get accuracy color
+function getAccuracyColor(accuracy) {
+  if (accuracy >= 90) return '#00ff88';
+  if (accuracy >= 70) return '#ffcc00';
+  return '#ff4466';
+}
+
+// Calculate overall accuracy percentage
+function calculateAccuracy(moveAnalysis) {
+  if (!moveAnalysis || moveAnalysis.length === 0) return null;
+  
+  let accurateMoves = 0;
+  for (const move of moveAnalysis) {
+    const cls = move.classification || 'good';
+    if (cls === 'brilliant') accurateMoves += 1.0;
+    else if (cls === 'good') accurateMoves += 1.0;
+    else if (cls === 'inaccuracy') accurateMoves += 0.5;
+    else if (cls === 'mistake') accurateMoves += 0.25;
+    // blunder = 0
+  }
+  
+  return Math.round((accurateMoves / moveAnalysis.length) * 100);
+}
+
+// Render win probability graph as SVG
+function renderWinProbabilityGraph(evaluations) {
+  if (!evaluations || evaluations.length === 0) return '';
+  
+  const width = 280;
+  const height = 60;
+  
+  // Convert centipawn eval to win probability: 50 + 50 * tanh(eval / 300)
+  const dataPoints = evaluations.map((ev, i) => {
+    const winProb = 50 + 50 * Math.tanh((ev || 0) / 300);
+    return { move: i + 1, probability: winProb };
+  });
+  
+  if (dataPoints.length < 2) return '';
+  
+  const points = dataPoints.map((d, i) => {
+    const x = (i / (dataPoints.length - 1)) * width;
+    const y = height - (d.probability / 100) * height;
+    return `${x},${y}`;
+  }).join(' ');
+  
+  return `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:60px;border-radius:4px;background:rgba(0,0,0,0.3);">
+      <polyline fill="none" stroke="#00ff88" stroke-width="2" points="${points}" />
+      <line x1="0" y1="${height/2}" x2="${width}" y2="${height/2}" stroke="rgba(255,255,255,0.2)" stroke-width="1" stroke-dasharray="4" />
+    </svg>
+  `;
+}
+
+// Count blunders in move analysis
+function countBlunders(moveAnalysis) {
+  if (!moveAnalysis) return 0;
+  return moveAnalysis.filter(m => m.classification === 'blunder').length;
+}
+
+// Analyze a complete game for review
+function analyzeGame(gameRecord) {
+  if (!gameRecord || !gameRecord.moves || gameRecord.moves.length === 0) {
+    return { moveAnalysis: [], accuracy: null };
+  }
+  
+  const moveAnalysis = [];
+  const tempGame = new Chess();
+  
+  for (let i = 0; i < gameRecord.moves.length; i++) {
+    const moveData = gameRecord.moves[i];
+    
+    // Make the move
+    tempGame.move(moveData);
+    const fen = tempGame.fen();
+    
+    // Get Stockfish evaluation for this position
+    const eval = analyzePositionWithStockfish(fen);
+    
+    moveAnalysis.push({
+      san: moveData.san,
+      from: moveData.from,
+      to: moveData.to,
+      fen: fen,
+      eval: eval,
+      classification: 'good' // Will be updated after full analysis
+    });
+  }
+  
+  // Update classifications based on best moves found
+  const bestEvals = moveAnalysis.map(m => m.eval);
+  
+  for (let i = 0; i < moveAnalysis.length; i++) {
+    const currentEval = bestEvals[i];
+    const playerEval = currentEval; // This was player's move
+    
+    // Compare with what Stockfish found as best
+    const bestAfter = bestEvals.slice(i + 1);
+    const stockfishBest = bestAfter.length > 0 ? Math.min(...bestAfter.filter(e => e !== null)) : null;
+    
+    moveAnalysis[i].classification = classifyMove(playerEval, stockfishBest);
+  }
+  
+  const accuracy = calculateAccuracy(moveAnalysis);
+  
+  return { moveAnalysis, accuracy };
+}
+
+// Get Stockfish evaluation for a position
+function analyzePositionWithStockfish(fen) {
+  // This is a placeholder - actual implementation would need async Stockfish call
+  // For now, return a simulated eval based on position
+  const tempGame = new Chess(fen);
+  
+  // Simple material count as rough evaluation
+  const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  let eval = 0;
+  
+  for (const [square, piece] of tempGame.board()) {
+    if (piece) {
+      const value = pieceValues[piece.type] || 0;
+      if (piece.color === 'w') eval += value;
+      else eval -= value;
+    }
+  }
+  
+  return eval * 100; // Convert to centipawns
+}
+
 function resetGame() {
   if (puzzleMode && currentPuzzle) {
     initializePuzzleState(currentPuzzle);
@@ -3524,12 +3688,24 @@ function renderProfileHistoryList() {
     const date = new Date(game.timestamp).toLocaleDateString();
     const timeControl = game.timeControl || 'rapid';
     const tcIcon = timeControl === 'blitz' ? '⚡' : timeControl === 'rapid' ? '⏱️' : '♟️';
+    
+    // Show accuracy badge if analyzed
+    const accuracy = game.accuracy || (game.moveAnalysis ? calculateAccuracy(game.moveAnalysis) : null);
+    const accuracyBadge = accuracy !== null ? `
+      <div style="background: ${getAccuracyColor(accuracy)}; color: #000; font-size: 0.55rem; font-weight: bold; padding: 2px 5px; border-radius: 4px; margin-left: 4px;">
+        ${accuracy}%
+      </div>
+    ` : '';
+    
     const el = document.createElement('div');
     el.style.cssText = 'padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; cursor: pointer;';
     el.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
-          <div style="font-size: 0.8rem; font-weight: bold;">vs ${game.opponent?.username || 'AI'}</div>
+          <div style="display: flex; align-items: center;">
+            <div style="font-size: 0.8rem; font-weight: bold;">vs ${game.opponent?.username || 'AI'}</div>
+            ${accuracyBadge}
+          </div>
           <div style="font-size: 0.65rem; color: var(--color-text-secondary);">${game.type?.toUpperCase() || 'PVP'} · ${tcIcon} ${timeControl} · ${date}</div>
         </div>
         <div style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem; color: ${resultColor};">${game.result?.toUpperCase() || '?'}</div>
@@ -3540,14 +3716,49 @@ function renderProfileHistoryList() {
   });
 }
 
+let currentAnalyzedGame = null;
+
 function showProfileGameDetail(game) {
   const modal = document.getElementById('profile-game-detail');
   const content = document.getElementById('profile-game-detail-content');
+  const statsDiv = document.getElementById('game-review-stats');
+  const graphDiv = document.getElementById('game-review-graph');
+  const analyzeBtn = document.getElementById('btn-analyze-game');
+  
+  currentAnalyzedGame = game;
   
   const resultColor = game.result === 'win' ? '#00ff88' : game.result === 'loss' ? '#ff4466' : 'var(--color-accent-alt)';
   const date = new Date(game.timestamp).toLocaleString();
   const timeControl = game.timeControl || 'rapid';
   const timerDisplay = game.timerDuration ? `${Math.floor(game.timerDuration / 60)}min` : '10min';
+  
+  // Pre-populate stats if analysis exists
+  if (game.moveAnalysis && game.moveAnalysis.length > 0) {
+    const accuracy = game.accuracy || calculateAccuracy(game.moveAnalysis);
+    const blunders = countBlunders(game.moveAnalysis);
+    const finalEval = game.moveAnalysis.length > 0 ? (game.moveAnalysis[game.moveAnalysis.length - 1].eval || 0) : 0;
+    
+    document.getElementById('review-accuracy').textContent = accuracy !== null ? `${accuracy}%` : '--%';
+    document.getElementById('review-accuracy').style.color = getAccuracyColor(accuracy);
+    document.getElementById('review-blunders').textContent = blunders;
+    document.getElementById('review-eval').textContent = (finalEval >= 0 ? '+' : '') + (finalEval / 100).toFixed(1);
+    document.getElementById('review-eval').style.color = finalEval >= 0 ? '#00ff88' : '#ff4466';
+    statsDiv.style.display = 'grid';
+    
+    // Show win probability graph
+    const evals = game.moveAnalysis.map(m => m.eval);
+    const graph = renderWinProbabilityGraph(evals);
+    if (graph) {
+      document.getElementById('win-prob-graph').innerHTML = graph;
+      graphDiv.style.display = 'block';
+    }
+    
+    analyzeBtn.style.display = 'none';
+  } else {
+    statsDiv.style.display = 'none';
+    graphDiv.style.display = 'none';
+    analyzeBtn.style.display = 'block';
+  }
   
   content.innerHTML = `
     <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; text-align: center;">
@@ -3593,6 +3804,29 @@ function downloadPGN(game) {
   a.click();
   URL.revokeObjectURL(url);
   showNotification('PGN downloaded', 'success');
+}
+
+// Run game analysis and update modal
+function runGameAnalysis() {
+  const game = currentAnalyzedGame;
+  if (!game || !game.moves || game.moves.length === 0) {
+    showNotification('No moves to analyze', 'error');
+    return;
+  }
+  
+  showNotification('Analyzing game...', 'info');
+  
+  // Run analysis
+  const result = analyzeGame(game);
+  
+  // Store results
+  game.moveAnalysis = result.moveAnalysis;
+  game.accuracy = result.accuracy;
+  
+  // Update modal
+  showProfileGameDetail(game);
+  
+  showNotification('Analysis complete', 'success');
 }
 
 // Copy game link to clipboard
