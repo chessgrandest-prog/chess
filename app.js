@@ -1577,6 +1577,14 @@ function updateCapturedPieces() {
 // CLICK & ADVANCED POINTER DRAG INTERACTION HANDLERS
 // -------------------------------------------------------------------------
 function onTileClick(square) {
+  // Allow move review navigation for analysis/practice even when reviewing history
+  if (isReviewingHistory) {
+    // When reviewing, allow continuing from any position
+    // Update the game state to continue from this point
+    notationGoTo(currentNotationIndex);
+    // Then allow the move - fall through to normal handling
+  }
+  
   if (isAITurn) return;
 
   // Online mode: block moves when it is not our color's turn
@@ -1603,6 +1611,12 @@ function onTileClick(square) {
 
 function onPointerDown(e) {
   if (isAITurn) return;
+  
+  // When reviewing history, allow making moves for any side
+  if (isReviewingHistory) {
+    notationGoTo(currentNotationIndex);
+  }
+  
   if (window._onlineMode && game.turn() !== window._onlineColor) return;
   if (e.button !== 0) return; // Only drag pieces with left-click!
   e.stopPropagation();
@@ -1699,6 +1713,14 @@ function updateDragClonePos(e) {
 function executePlayerMove(moveDetails) {
   selectedSquare = null;
   possibleMoves = [];
+
+  // Exit review mode when making a new move from history position
+  if (isReviewingHistory) {
+    // Truncate history at current position and add new move here
+    notationHistory = notationHistory.slice(0, currentNotationIndex + 1);
+    isReviewingHistory = false;
+    updateReviewBanner();
+  }
 
   if (typeof clearDrawingOverlay === 'function') {
     clearDrawingOverlay();
