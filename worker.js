@@ -121,6 +121,9 @@ export default {
         passwordHash,
         friends: [],
         profilePicture: null,
+        bio: '',                           // User profile bio
+        favoriteOpening: '',               // User's favorite opening
+        themePreference: 'neon',         // Theme preference (default neon)
         gameHistory: [],
         friendRequests: [],
         outgoingRequests: [],
@@ -156,6 +159,9 @@ export default {
           rating: user.rating,
           friends: user.friends,
           profilePicture: user.profilePicture,
+          bio: user.bio || '',
+          favoriteOpening: user.favoriteOpening || '',
+          themePreference: user.themePreference || 'neon',
           gameHistory: user.gameHistory,
           friendRequests: user.friendRequests,
           outgoingRequests: user.outgoingRequests,
@@ -193,6 +199,36 @@ export default {
       user.profilePicture = picture;
       await env.USERS_KV.put(key, JSON.stringify(user));
       return jsonResponse({ success: true, message: 'Profile picture updated!' });
+    }
+
+    // --- REST: Update Profile (bio, favoriteOpening, theme) ---
+    if (url.pathname === '/api/profile/update' && request.method === 'POST') {
+      const authHeader = request.headers.get('Authorization');
+      if (!authHeader) {
+        return jsonResponse({ error: 'Authorization required' }, 401);
+      }
+      const { username, bio, favoriteOpening, themePreference } = await request.json();
+      if (!username) {
+        return jsonResponse({ error: 'Username required' }, 400);
+      }
+      const key = 'user:' + username.trim().toLowerCase();
+      const raw = await env.USERS_KV.get(key);
+      if (!raw) {
+        return jsonResponse({ error: 'User not found' }, 404);
+      }
+      const user = JSON.parse(raw);
+      // Update fields
+      if (bio !== undefined) user.bio = bio.substring(0, 500); // Max 500 chars
+      if (favoriteOpening !== undefined) user.favoriteOpening = favoriteOpening.substring(0, 100);
+      if (themePreference !== undefined) user.themePreference = themePreference;
+      await env.USERS_KV.put(key, JSON.stringify(user));
+      return jsonResponse({ 
+        success: true, 
+        message: 'Profile updated!',
+        bio: user.bio,
+        favoriteOpening: user.favoriteOpening,
+        themePreference: user.themePreference
+      });
     }
 
     // --- REST: Get User Profile ---
@@ -1011,6 +1047,40 @@ export class LobbyRoom {
     for (const { ws } of this.connections.values()) {
       this._send(ws, 'online-users-list', list);
     }
+    // Also notify friends of online status changes
+    for (const { user, ws } of this.connections.values()) {
+      if (!user.friends || user.friends.length === 0) continue;
+      for (const friendName of user.friends) {
+        const friendKey = 'user:' + friendName.toLowerCase();
+        // This is simplified - in production we'd track friend connections better
+        this._send(ws, 'friend-status-change', { 
+          friend: friendName, 
+          status: 'online',  // Would be fetched from connections
+          timestamp: Date.now() 
+        });
+      }
+    }
+  }
+
+  // Broadcast friend activity (game completed, etc.)
+  _broadcastFriendActivity(userId, activity) {
+    // Find the user and their friends, notify online friends
+    const conn = Array.from(this.connections.values()).find(c => c.user.id === userId);
+    if (!conn) return;
+    
+    const user = conn.user;
+    if (!user.friends || user.friends.length === 0) return;
+    
+    // Find all friends who are online
+    for (const { user: friendUser, ws: friendWs } of this.connections.values()) {
+      if (user.friends.includes(friendUser.username)) {
+        this._send(friendWs, 'friend-activity', {
+          friend: user.username,
+          activity: activity,  // e.g., 'game-ended', 'came-online'
+          timestamp: Date.now()
+        });
+      }
+    }
   }
 
   async _updateGameStats(game, winnerId) {
@@ -1043,10 +1113,13 @@ export class LobbyRoom {
       }
 
       // Record game history for both players
+      const timeControl = game.timerDuration <= 300 ? 'blitz' : game.timerDuration <= 600 ? 'rapid' : 'classical';
       const gameRecord = {
         gameId: game.gameId,
-        type: 'pvp',
+        type: game.type || 'pvp',
         result: whiteResult,
+        timerDuration: game.timerDuration || 600,
+        timeControl: timeControl,
         opponent: { id: bUser.id, username: bUser.username },
         timestamp: Date.now(),
         moves: game.moves,

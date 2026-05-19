@@ -3093,6 +3093,7 @@ document.addEventListener('DOMContentLoaded', () => {
 let profileUser = null;
 let profileFriends = [];
 let profileGameHistory = [];
+let profileActivity = []; // Recent activity from friends
 let profileIncomingRequests = [];
 let onlineUsersList = [];
 let friendsSocket = null;
@@ -3172,6 +3173,15 @@ function handleFriendsMessage(type, payload) {
         updateProfileDisplay();
       }
       break;
+    case 'friend-activity':
+      // Show activity notification when a friend plays/completes a game
+      handleFriendActivity(payload);
+      break;
+    case 'friend-status-change':
+      // Update friend online status in friends list
+      renderProfileFriendsList();
+      showNotification(`${payload.friend} is now ${payload.status}!`, 'info');
+      break;
   }
 }
 
@@ -3187,6 +3197,73 @@ function updateFriendsOnlineStatus() {
       statusDot.style.boxShadow = isOnline ? '0 0 6px #00ff88' : 'none';
     }
   });
+}
+
+// Handle friend activity notifications
+function handleFriendActivity(payload) {
+  const { friend, activity, timestamp } = payload;
+  let message = '';
+  let icon = '';
+  
+  switch (activity) {
+    case 'came-online':
+      message = `${friend} came online!`;
+      icon = '🟢';
+      break;
+    case 'game-ended':
+      message = `${friend} finished a game`;
+      icon = '♟️';
+      break;
+    case 'started-game':
+      message = `${friend} started a game`;
+      icon = '🎮';
+      break;
+    default:
+      message = `${friend} is active`;
+      icon = '✨';
+  }
+  
+  // Add to activity feed
+  profileActivity.unshift({
+    friend,
+    activity,
+    message: `${icon} ${message}`,
+    timestamp: timestamp || Date.now()
+  });
+  
+  // Keep only recent 20 activities
+  if (profileActivity.length > 20) profileActivity = profileActivity.slice(0, 20);
+  
+  // Re-render activity list if visible
+  const activitySection = document.getElementById('profile-activity-section');
+  if (activitySection && activitySection.style.display !== 'none') {
+    renderActivityList();
+  }
+  
+  showNotification(`${icon} ${message}`, 'info');
+}
+
+// Render activity list
+function renderActivityList() {
+  const container = document.getElementById('profile-activity-list');
+  if (!container) return;
+  
+  if (profileActivity.length === 0) {
+    container.innerHTML = '<div style="font-size: 0.75rem; color: var(--color-text-secondary); text-align: center; padding: 20px;">No recent activity. Play games or add friends to see updates.</div>';
+    return;
+  }
+  
+  container.innerHTML = '';
+  for (const item of profileActivity) {
+    const el = document.createElement('div');
+    el.style.cssText = 'padding: 8px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);';
+    const time = new Date(item.timestamp).toLocaleTimeString();
+    el.innerHTML = `
+      <div style="font-size: 0.75rem;">${item.message}</div>
+      <div style="font-size: 0.6rem; color: var(--color-text-secondary); margin-top: 2px;">${time}</div>
+    `;
+    container.appendChild(el);
+  }
 }
 
 // Profile auth tab switching
@@ -3323,6 +3400,15 @@ function updateProfileDisplay() {
   document.getElementById('profile-stat-lost').textContent = profileUser.stats?.lost || 0;
   document.getElementById('profile-stat-drawn').textContent = profileUser.stats?.drawn || 0;
   
+  // Render detailed stats
+  renderDetailedStats();
+  
+  // Profile customization fields
+  const bioInput = document.getElementById('profile-bio');
+  const favOpeningInput = document.getElementById('profile-favorite-opening');
+  if (bioInput && profileUser.bio) bioInput.value = profileUser.bio;
+  if (favOpeningInput && profileUser.favoriteOpening) favOpeningInput.value = profileUser.favoriteOpening;
+  
   // Profile picture
   if (profileUser.profilePicture) {
     const img = document.getElementById('profile-avatar-img');
@@ -3335,8 +3421,10 @@ function updateProfileDisplay() {
 function profileShowSubTab(tab) {
   document.getElementById('profile-tab-friends').classList.toggle('active', tab === 'friends');
   document.getElementById('profile-tab-history').classList.toggle('active', tab === 'history');
+  document.getElementById('profile-tab-activity').classList.toggle('active', tab === 'activity');
   document.getElementById('profile-friends-section').style.display = tab === 'friends' ? 'block' : 'none';
   document.getElementById('profile-history-section').style.display = tab === 'history' ? 'block' : 'none';
+  document.getElementById('profile-activity-section').style.display = tab === 'activity' ? 'block' : 'none';
 }
 
 function renderProfileFriendsList() {
@@ -3398,21 +3486,29 @@ function renderProfileHistoryList() {
   const container = document.getElementById('profile-history-list');
   container.innerHTML = '';
   
-  if (profileGameHistory.length === 0) {
+  // Filter history based on current filter
+  let filteredHistory = profileGameHistory;
+  if (currentHistoryFilter !== 'all') {
+    filteredHistory = profileGameHistory.filter(g => g.result === currentHistoryFilter);
+  }
+  
+  if (filteredHistory.length === 0) {
     container.innerHTML = '<div style="font-size: 0.75rem; color: var(--color-text-secondary); padding: 10px; text-align: center;">No games played yet.</div>';
     return;
   }
   
-  profileGameHistory.forEach(game => {
+  filteredHistory.forEach(game => {
     const resultColor = game.result === 'win' ? '#00ff88' : game.result === 'loss' ? '#ff4466' : 'var(--color-accent-alt)';
     const date = new Date(game.timestamp).toLocaleDateString();
+    const timeControl = game.timeControl || 'rapid';
+    const tcIcon = timeControl === 'blitz' ? '⚡' : timeControl === 'rapid' ? '⏱️' : '♟️';
     const el = document.createElement('div');
     el.style.cssText = 'padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; cursor: pointer;';
     el.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
           <div style="font-size: 0.8rem; font-weight: bold;">vs ${game.opponent?.username || 'AI'}</div>
-          <div style="font-size: 0.65rem; color: var(--color-text-secondary);">${game.type?.toUpperCase() || 'PVP'} · ${date}</div>
+          <div style="font-size: 0.65rem; color: var(--color-text-secondary);">${game.type?.toUpperCase() || 'PVP'} · ${tcIcon} ${timeControl} · ${date}</div>
         </div>
         <div style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem; color: ${resultColor};">${game.result?.toUpperCase() || '?'}</div>
       </div>
@@ -3428,27 +3524,250 @@ function showProfileGameDetail(game) {
   
   const resultColor = game.result === 'win' ? '#00ff88' : game.result === 'loss' ? '#ff4466' : 'var(--color-accent-alt)';
   const date = new Date(game.timestamp).toLocaleString();
+  const timeControl = game.timeControl || 'rapid';
+  const timerDisplay = game.timerDuration ? `${Math.floor(game.timerDuration / 60)}min` : '10min';
   
   content.innerHTML = `
     <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; text-align: center;">
       <div style="font-family: 'Orbitron', sans-serif; font-size: 1.2rem; color: ${resultColor}; margin-bottom: 8px;">${game.result?.toUpperCase() || '?'}</div>
       <div style="font-size: 0.8rem; color: var(--color-text-secondary);">vs ${game.opponent?.username || 'AI'} (${game.type?.toUpperCase() || 'PVP'})</div>
-      <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-top: 4px;">${date}</div>
+      <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-top: 4px;">${timerDisplay} ${timeControl} · ${date}</div>
     </div>
     <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px;">
       <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 8px;">MOVES: ${game.moves?.length || 0}</div>
       <div style="font-size: 0.7rem; font-family: monospace; color: var(--color-accent-alt); max-height: 150px; overflow-y: auto;">${(game.moves || []).map(m => m.san).join(' ')}</div>
     </div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <button class="btn-cyber active" onclick='loadGameFromHistory(${JSON.stringify(game)})' style="flex: 1; justify-content: center;">
+        <i class="fa-solid fa-play"></i> REPLAY
+      </button>
+      <button class="btn-cyber" onclick="downloadPGN(${JSON.stringify(game).replace(/"/g, '&quot;')})" style="flex: 1; justify-content: center;">
+        <i class="fa-solid fa-download"></i> PGN
+      </button>
+      <button class="btn-cyber" onclick="copyGameLink(${JSON.stringify(game).replace(/"/g, '&quot;')})" style="flex: 1; justify-content: center;">
+        <i class="fa-solid fa-link"></i> SHARE
+      </button>
+    </div>
     <div style="display: flex; gap: 8px;">
-      <button class="btn-cyber active" onclick="closeProfileGameDetail()" style="flex: 1; justify-content: center;">CLOSE</button>
+      <button class="btn-cyber" onclick="closeProfileGameDetail()" style="flex: 1; justify-content: center;">CLOSE</button>
     </div>
   `;
   
   modal.style.display = 'block';
 }
 
+// Download PGN file
+function downloadPGN(game) {
+  const pgn = exportGameAsPGN(game);
+  if (!pgn) {
+    showNotification('No game data to export', 'error');
+    return;
+  }
+  const blob = new Blob([pgn], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `game_${game.gameId || 'export'}.pgn`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showNotification('PGN downloaded', 'success');
+}
+
+// Copy game link to clipboard
+function copyGameLink(game) {
+  const link = shareGameURL(game);
+  if (!link) {
+    showNotification('No game link available', 'error');
+    return;
+  }
+  navigator.clipboard.writeText(link).then(() => {
+    showNotification('Link copied to clipboard', 'success');
+  }).catch(() => {
+    showNotification('Failed to copy link', 'error');
+  });
+}
+
 function closeProfileGameDetail() {
   document.getElementById('profile-game-detail').style.display = 'none';
+}
+
+// Current history filter
+let currentHistoryFilter = 'all';
+
+// Filter game history by result
+function filterHistory(filter) {
+  currentHistoryFilter = filter;
+  document.querySelectorAll('#profile-history-section .btn-cyber').forEach(btn => {
+    btn.classList.remove('active');
+    if (btn.textContent.toLowerCase().includes(filter === 'all' ? 'all' : filter[0])) {
+      btn.classList.add('active');
+    }
+  });
+  renderProfileHistoryList();
+}
+
+// Load game from history for replay
+function loadGameFromHistory(gameRecord) {
+  if (!gameRecord || !gameRecord.moves) {
+    showNotification('No moves to replay', 'error');
+    return;
+  }
+  
+  // Reset game and replay moves
+  const tempGame = new Chess();
+  for (const move of gameRecord.moves) {
+    tempGame.move(move);
+  }
+  game = tempGame;
+  notationHistory = gameRecord.moves;
+  currentNotationIndex = notationHistory.length - 1;
+  isReviewingHistory = false;
+  
+  // Switch to analysis mode for replay
+  selectGameModeTab('analysis');
+  renderBoard();
+  renderNotation();
+  showNotification('Game loaded for review', 'success');
+}
+
+// Export game as PGN
+function exportGameAsPGN(gameRecord) {
+  if (!gameRecord || !gameRecord.moves) return '';
+  
+  const tempGame = new Chess();
+  let pgn = `[Event "NeonSkull Cyber-Chess"]
+[Site "Online"]
+[Date "${new Date(gameRecord.timestamp).toISOString().split('T')[0]}"]
+[White "${profileUser?.username || 'Player'}"]
+[Black "${gameRecord.opponent?.username || 'Opponent'}"]
+[Result "${gameRecord.result === 'win' ? '1-0' : gameRecord.result === 'loss' ? '0-1' : '1/2-1/2'}"]
+[TimeControl "${gameRecord.timerDuration || 600}"]
+[TimeControlEnd "${gameRecord.timeControl || 'rapid'}"]
+[ECO "-"]
+
+`;
+
+  for (let i = 0; i < gameRecord.moves.length; i++) {
+    const move = gameRecord.moves[i];
+    tempGame.move(move);
+    if (i % 2 === 0) {
+      pgn += `${Math.floor(i/2) + 1}. `;
+    }
+    pgn += `${move.san} `;
+  }
+  
+  pgn += gameRecord.result === 'win' ? '1-0' 
+       : gameRecord.result === 'loss' ? '0-1' 
+       : '1/2-1/2';
+  
+  return pgn;
+}
+
+// Share game URL
+function shareGameURL(gameRecord) {
+  if (!gameRecord || !gameRecord.gameId) return '';
+  return `${window.location.origin}/?game=${gameRecord.gameId}`;
+}
+
+// Compute detailed stats from gameHistory
+function computeDetailedStats(history) {
+  if (!history || history.length === 0) return null;
+  
+  const stats = {
+    total: history.length,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    byTimeControl: { blitz: { w:0,l:0,d:0 }, rapid: { w:0,l:0,d:0 }, classical: { w:0,l:0,d:0 } },
+    recentTrend: [],
+    avgGameLength: 0
+  };
+  
+  let totalMoves = 0;
+  
+  for (const game of history) {
+    if (game.result === 'win') stats.wins++;
+    else if (game.result === 'loss') stats.losses++;
+    else stats.draws++;
+    
+    // Time control breakdown
+    const tc = game.timeControl || 'rapid';
+    if (stats.byTimeControl[tc]) {
+      if (game.result === 'win') stats.byTimeControl[tc].w++;
+      else if (game.result === 'loss') stats.byTimeControl[tc].l++;
+      else stats.byTimeControl[tc].d++;
+    }
+    
+    // Track moves for average
+    if (game.moves) totalMoves += game.moves.length;
+  }
+  
+  // Recent trend (last 10)
+  stats.recentTrend = history.slice(0, 10).map(g => g.result);
+  
+  // Average game length
+  stats.avgGameLength = history.length > 0 ? Math.round(totalMoves / history.length) : 0;
+  
+  return stats;
+}
+
+// Render detailed stats in profile panel
+function renderDetailedStats() {
+  const statsSection = document.getElementById('profile-stats-section');
+  if (!statsSection || !profileUser || !profileUser.gameHistory || profileUser.gameHistory.length === 0) {
+    if (statsSection) statsSection.style.display = 'none';
+    return;
+  }
+  
+  const stats = computeDetailedStats(profileUser.gameHistory);
+  if (!stats) {
+    statsSection.style.display = 'none';
+    return;
+  }
+  
+  // Show stats section
+  statsSection.style.display = 'block';
+  
+  // Win rate
+  const totalGames = stats.total;
+  const winRate = totalGames > 0 ? Math.round((stats.wins / totalGames) * 100) : 0;
+  document.getElementById('profile-win-rate').textContent = `${winRate}%`;
+  document.getElementById('profile-win-rate-bar').style.width = `${winRate}%`;
+  
+  // Time control breakdown
+  const tcStatsEl = document.getElementById('profile-tc-stats');
+  tcStatsEl.innerHTML = '';
+  
+  const tcLabels = { blitz: '⚡ Blitz', rapid: '⏱️ Rapid', classical: '♟️ Classical' };
+  for (const [tc, data] of Object.entries(stats.byTimeControl)) {
+    const tcTotal = data.w + data.l + data.d;
+    if (tcTotal === 0) continue;
+    const tcWinRate = Math.round((data.w / tcTotal) * 100);
+    const tcColor = tcWinRate >= 50 ? '#00ff88' : tcWinRate >= 40 ? 'var(--color-accent-alt)' : '#ff4466';
+    const row = document.createElement('div');
+    row.style.cssText = 'display: flex; align-items: center; gap: 8px; font-size: 0.7rem;';
+    row.innerHTML = `
+      <span style="width: 70px;">${tcLabels[tc] || tc}</span>
+      <span style="color: ${tcColor}; font-family: 'Orbitron', sans-serif;">${data.w}-${data.l}-${data.d}</span>
+      <span style="color: var(--color-text-secondary);">(${tcWinRate}%)</span>
+    `;
+    tcStatsEl.appendChild(row);
+  }
+  
+  if (tcStatsEl.children.length === 0) {
+    tcStatsEl.innerHTML = '<div style="font-size: 0.7rem; color: var(--color-text-secondary);">No time control data</div>';
+  }
+  
+  // Recent trend
+  const trendEl = document.getElementById('profile-trend');
+  trendEl.innerHTML = '';
+  for (const result of stats.recentTrend) {
+    const dot = document.createElement('div');
+    const color = result === 'win' ? '#00ff88' : result === 'loss' ? '#ff4466' : 'var(--color-accent-alt)';
+    dot.style.cssText = `width: 12px; height: 12px; border-radius: 50%; background: ${color};`;
+    dot.title = result ? result.toUpperCase() : '?';
+    trendEl.appendChild(dot);
+  }
 }
 
 // Send friend request
@@ -3542,6 +3861,49 @@ function uploadProfilePicture(input) {
   };
   reader.readAsDataURL(file);
   input.value = '';
+}
+
+// Save profile bio, favorite opening, theme
+async function saveProfileCustomization() {
+  if (!profileUser) {
+    showNotification('Please login first', 'error');
+    return;
+  }
+  
+  const bio = document.getElementById('profile-bio').value.trim();
+  const favoriteOpening = document.getElementById('profile-favorite-opening').value.trim();
+  const themePreference = 'neon'; // Could add theme selector later
+  
+  try {
+    const res = await fetch(API_BASE + '/api/profile/update', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + profileUser.username
+      },
+      body: JSON.stringify({ 
+        username: profileUser.username, 
+        bio, 
+        favoriteOpening,
+        themePreference
+      })
+    });
+    const data = await res.json();
+    
+    if (!res.ok) {
+      showNotification(data.error || 'Failed to save', 'error');
+      return;
+    }
+    
+    // Update local user
+    profileUser.bio = data.bio;
+    profileUser.favoriteOpening = data.favoriteOpening;
+    profileUser.themePreference = data.themePreference;
+    
+    showNotification('Profile saved!', 'success');
+  } catch (err) {
+    showNotification('Error saving profile', 'error');
+  }
 }
 
 // =========================================================================
