@@ -201,7 +201,154 @@
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4) !important;
 }
 
+
+/* =========================================================================
+   BOARD STYLE PRESETS (data-board attribute)
+   ========================================================================= */
+
+/* Classic Green (Chess.com style) */
+[data-board="green"] {
+  --color-board-light: #eeeed2;
+  --color-board-dark: #769656;
+}
+[data-board="green"] .tile.light { color: rgba(118, 150, 86, 0.85); }
+[data-board="green"] .tile.dark  { color: rgba(238, 238, 210, 0.85); }
+
+/* Walnut Wood */
+[data-board="walnut"] {
+  --color-board-light: #f0d9b5;
+  --color-board-dark: #b58863;
+}
+[data-board="walnut"] .tile.light { color: rgba(181, 136, 99, 0.9); }
+[data-board="walnut"] .tile.dark  { color: rgba(240, 217, 181, 0.9); }
+
+/* Slate Blue */
+[data-board="slate"] {
+  --color-board-light: #8ca2ad;
+  --color-board-dark: #3d5a6b;
+}
+[data-board="slate"] .tile.light { color: rgba(61, 90, 107, 0.9); }
+[data-board="slate"] .tile.dark  { color: rgba(140, 162, 173, 0.9); }
+
+/* Midnight (high contrast) */
+[data-board="midnight"] {
+  --color-board-light: #2a2a3a;
+  --color-board-dark: #0d0d16;
+}
+[data-board="midnight"] .tile.light { color: rgba(80, 80, 120, 0.9); }
+[data-board="midnight"] .tile.dark  { color: rgba(20, 20, 35, 0.9); }
+
+/* Coral Rose */
+[data-board="coral"] {
+  --color-board-light: #f5d0c8;
+  --color-board-dark: #c9786b;
+}
+[data-board="coral"] .tile.light { color: rgba(201, 120, 107, 0.9); }
+[data-board="coral"] .tile.dark  { color: rgba(245, 208, 200, 0.9); }
+
+/* =========================================================================
+   SETTINGS MODAL — PIECE & BOARD PICKERS
+   ========================================================================= */
+
+.settings-section-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 2px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  margin-top: 4px;
+}
+
+.board-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.board-swatch {
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.2s, transform 0.15s;
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+.board-swatch:hover {
+  transform: scale(1.06);
+}
+.board-swatch.selected {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 10px var(--color-accent);
+}
+.board-swatch .sq {
+  width: 100%;
+  height: 100%;
+}
+.board-swatch .sq.light { background: var(--sw-light); }
+.board-swatch .sq.dark  { background: var(--sw-dark); }
+.board-swatch-label {
+  font-size: 0.6rem;
+  text-align: center;
+  color: var(--color-text-secondary);
+  margin-top: 3px;
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 0.5px;
+}
+
+.piece-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.piece-preview-tile {
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  transition: border-color 0.2s, transform 0.15s, background 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 4px 4px;
+  gap: 4px;
+}
+.piece-preview-tile:hover {
+  transform: scale(1.06);
+  background: rgba(255,255,255,0.08);
+}
+.piece-preview-tile.selected {
+  border-color: var(--color-accent);
+  background: rgba(255, 0, 127, 0.1);
+  box-shadow: 0 0 10px var(--color-accent);
+}
+.piece-preview-tile svg {
+  width: 36px;
+  height: 36px;
+}
+.piece-preview-tile .piece-set-name {
+  font-size: 0.55rem;
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+}
+
+/* Piece set specific fills for previews */
+.preview-classic { --preview-fill: var(--color-white-piece); color: var(--color-bg); }
+.preview-minimal { --preview-fill: var(--color-accent-alt); color: var(--color-bg); }
+.preview-neo     { --preview-fill: #ffffff; color: var(--color-bg); }
+
 /* Global Reset */
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -250,7 +397,7 @@ body {
   width: 100%;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: auto 1fr 280px;
+  grid-template-columns: auto 1fr auto 280px;
   gap: 0;
   align-items: stretch;
 }
@@ -1966,4 +2113,50 @@ footer i {
 
 .notation-reviewing-banner.active {
   opacity: 1;
+}
+
+/* Move history variations styling */
+.notation-variation-block {
+  margin-left: 8px;
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+  padding-left: 8px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notation-variation-line {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
+.var-move-num {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.35);
+  margin-right: 2px;
+}
+
+.var-move {
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  color: rgba(255, 255, 255, 0.8);
+  display: inline-block;
+}
+
+.var-move:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-accent-alt);
+}
+
+.var-move.active {
+  background: var(--color-accent-alt);
+  color: var(--color-bg);
+  font-weight: 600;
 }

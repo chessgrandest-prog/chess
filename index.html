@@ -59,10 +59,6 @@
             <i class="fa-solid fa-magnifying-glass-chart"></i>
             <span class="tab-label">ANALYST</span>
           </button>
-          <button class="nav-tab-cyber" id="tab-actions" onclick="selectGameModeTab('actions')" title="Quick Game Actions">
-            <i class="fa-solid fa-gamepad"></i>
-            <span class="tab-label">ACTIONS</span>
-          </button>
           <button class="nav-tab-cyber" id="tab-profile" onclick="selectGameModeTab('profile')" title="User Profile & Friends">
             <i class="fa-solid fa-user-astronaut"></i>
             <span class="tab-label">PROFILE</span>
@@ -71,6 +67,9 @@
 
         <!-- Bottom Controls -->
         <div class="dock-bottom-cyber">
+          <button class="dock-btn-cyber" id="dock-settings-btn" onclick="openSettingsModal()" title="Universal Settings">
+            <i class="fa-solid fa-gear"></i>
+          </button>
           <button class="dock-btn-cyber" id="dock-collapse-btn" onclick="toggleDrawer()" title="Expand/Collapse Control Drawer">
             <i class="fa-solid fa-chevron-left" id="collapse-icon"></i>
           </button>
@@ -101,27 +100,43 @@
                 <input type="range" class="slider-cyber" id="ai-depth-slider" min="1" max="20" value="12" oninput="updateAIDepthVal(this.value)">
               </div>
             </div>
+            <button class="btn-cyber active" onclick="resetGame()" style="width: 100%; justify-content: center; margin-top: 10px; padding: 12px;">
+              <i class="fa-solid fa-gamepad"></i> START NEW GAME
+            </button>
 
-            <!-- Shared Elements (moved dynamically by JS) -->
             <div class="control-group" id="timer-group" style="margin-top: 10px;">
               <label class="control-label">Match Timer</label>
               <select class="select-cyber" id="match-timer" onchange="resetClocks()">
-                <option value="3">3 MIN (BLITZ)</option>
-                <option value="5">5 MIN (BLITZ)</option>
-                <option value="10" selected>10 MIN (RAPID)</option>
-                <option value="30">30 MIN (CLASSICAL)</option>
-                <option value="infinite">INFINITE TIME</option>
-              </select>
-            </div>
-
-            <div class="control-group" id="theme-group" style="margin-top: 10px;">
-              <label class="control-label">Interface Theme</label>
-              <select class="select-cyber" id="theme-select" onchange="changeTheme()">
-                <option value="rave">NEON RAVE</option>
-                <option value="matrix">GREEN MATRIX</option>
-                <option value="retro">RETRO GOLD</option>
-                <option value="crimson">CRIMSON STEEL</option>
-                <option value="chesscom">CHESS.COM CLASSIC</option>
+                <optgroup label="Bullet">
+                  <option value="0.5+0">30 Sec</option>
+                  <option value="1+0">1 Min</option>
+                  <option value="1+1">1 | 1</option>
+                  <option value="2+1">2 | 1</option>
+                </optgroup>
+                <optgroup label="Blitz">
+                  <option value="3+0" selected>3 Min</option>
+                  <option value="3+2">3 | 2</option>
+                  <option value="5+0">5 Min</option>
+                  <option value="5+5">5 | 5</option>
+                  <option value="5+2">5 | 2</option>
+                </optgroup>
+                <optgroup label="Rapid">
+                  <option value="10+0">10 Min</option>
+                  <option value="15+10">15 | 10</option>
+                  <option value="30+0">30 Min</option>
+                  <option value="10+5">10 | 5</option>
+                  <option value="20+0">20 Min</option>
+                  <option value="60+0">60 Min</option>
+                </optgroup>
+                <optgroup label="Daily">
+                  <option value="1440+0">1 Day</option>
+                  <option value="2880+0">2 Days</option>
+                  <option value="4320+0">3 Days</option>
+                  <option value="7200+0">5 Days</option>
+                  <option value="10080+0">7 Days</option>
+                  <option value="20160+0">14 Days</option>
+                </optgroup>
+                <option value="infinite">Infinite Time</option>
               </select>
             </div>
           </div>
@@ -129,6 +144,9 @@
           <!-- Content 2: LOCAL MULTIPLAYER -->
           <div class="drawer-panel-cyber" id="panel-pvp" style="display: none;">
             <p style="font-size: 0.8rem; color: var(--color-text-secondary); margin-bottom: 15px;">Local Pass & Play mode. Challenge your friend locally on the same screen.</p>
+            <button class="btn-cyber active" onclick="resetGame()" style="width: 100%; justify-content: center; padding: 12px; margin-bottom: 10px;">
+              <i class="fa-solid fa-gamepad"></i> START NEW GAME
+            </button>
             <!-- Timer & Theme dynamically append here -->
           </div>
 
@@ -309,23 +327,7 @@
             </div>
           </div>
 
-          <!-- Content 6: QUICK ACTIONS -->
-          <div class="drawer-panel-cyber" id="panel-actions" style="display: none;">
-            <p style="font-size: 0.8rem; color: var(--color-text-secondary); margin-bottom: 15px;">Execute high-level board controls and game configurations.</p>
-            <div style="display: flex; flex-direction: column; gap: 12px;">
-              <button class="btn-cyber active" id="mute-btn" onclick="toggleMute()" style="width: 100%; justify-content: center; padding: 12px;">
-                <i class="fa-solid fa-volume-high"></i> <span id="mute-text">SOUND ON</span>
-              </button>
-              <button class="btn-cyber alt" id="flip-btn" onclick="flipBoard()" style="width: 100%; justify-content: center; padding: 12px;">
-                <i class="fa-solid fa-rotate"></i> FLIP BOARD
-              </button>
-              <button class="btn-cyber active" id="reset-btn" onclick="resetGame()" style="width: 100%; justify-content: center; padding: 12px;">
-                <i class="fa-solid fa-gamepad"></i> START NEW GAME
-              </button>
-            </div>
-          </div>
-
-          <!-- Content 7: USER PROFILE -->
+          <!-- Content 6: USER PROFILE -->
           <div class="drawer-panel-cyber" id="panel-profile" style="display: none;">
             
             <!-- Not logged in state -->
@@ -619,6 +621,28 @@
 
     </div> <!-- End board-section -->
 
+    <!-- NEW: Middle Column for Match Controls -->
+    <div class="controls-column" id="right-online-match-controls" style="display: none; width: 250px; flex-shrink: 0; flex-direction: column; gap: 15px; justify-content: center; padding: 40px 20px; border-left: 1px solid rgba(255, 255, 255, 0.05); border-right: 1px solid rgba(255, 255, 255, 0.05); background: rgba(0,0,0,0.2);">
+      
+      <div id="draw-offer-message" style="display: none; padding: 15px; background: rgba(255,255,255,0.03); border: 1px solid var(--color-accent-alt); border-radius: 8px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+        <div style="font-family: 'Orbitron', sans-serif; font-size: 0.85rem; font-weight: bold; color: var(--color-accent-alt); margin-bottom: 8px;">DRAW OFFER</div>
+        <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 15px;">Your opponent has offered a draw. Do you accept?</div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-cyber active" style="flex: 1; justify-content: center; padding: 10px;" onclick="onlineAcceptDraw()">YES</button>
+          <button class="btn-cyber alt" style="flex: 1; justify-content: center; padding: 10px;" onclick="onlineDeclineDraw()">NO</button>
+        </div>
+      </div>
+
+      <div style="flex-grow: 0.2;"></div>
+
+      <button class="btn-cyber active" onclick="onlineOfferDraw()" style="width: 100%; justify-content:center; padding:12px;">
+        <i class="fa-solid fa-handshake"></i> OFFER DRAW
+      </button>
+      <button class="btn-cyber alt" onclick="onlineResign()" style="width: 100%; justify-content:center; padding:12px;">
+        <i class="fa-solid fa-flag"></i> RESIGN
+      </button>
+    </div>
+
     <!-- Notation Sidebar Panel -->
     <div class="notation-sidebar" id="notation-sidebar">
       <div class="notation-sidebar-header">
@@ -644,29 +668,6 @@
       </div>
       <div class="notation-sidebar-footer" id="notation-result-display"></div>
     </div>
-
-    <!-- NEW: Right Column for Match Controls (3rd Grid Column) -->
-    <div class="controls-column" id="right-online-match-controls" style="display: none; width: 250px; flex-shrink: 0; flex-direction: column; gap: 15px; justify-content: center; padding: 40px 20px; border-left: 1px solid rgba(255, 255, 255, 0.05); background: rgba(0,0,0,0.2);">
-      
-      <div id="draw-offer-message" style="display: none; padding: 15px; background: rgba(255,255,255,0.03); border: 1px solid var(--color-accent-alt); border-radius: 8px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
-        <div style="font-family: 'Orbitron', sans-serif; font-size: 0.85rem; font-weight: bold; color: var(--color-accent-alt); margin-bottom: 8px;">DRAW OFFER</div>
-        <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 15px;">Your opponent has offered a draw. Do you accept?</div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn-cyber active" style="flex: 1; justify-content: center; padding: 10px;" onclick="onlineAcceptDraw()">YES</button>
-          <button class="btn-cyber alt" style="flex: 1; justify-content: center; padding: 10px;" onclick="onlineDeclineDraw()">NO</button>
-        </div>
-      </div>
-
-      <div style="flex-grow: 0.2;"></div>
-
-      <button class="btn-cyber active" onclick="onlineOfferDraw()" style="width: 100%; justify-content:center; padding:12px;">
-        <i class="fa-solid fa-handshake"></i> OFFER DRAW
-      </button>
-      <button class="btn-cyber alt" onclick="onlineResign()" style="width: 100%; justify-content:center; padding:12px;">
-        <i class="fa-solid fa-flag"></i> RESIGN
-      </button>
-    </div>
-
   </div> <!-- End app-container -->
     <footer
       style="margin: 30px 0; font-size: 0.85rem; color: var(--color-text-secondary); text-align: center; width: 100%;">
@@ -713,66 +714,170 @@
       <div class="modal-icon" id="gameover-icon"><i class="fa-solid fa-trophy"></i></div>
       <h2 id="gameover-title">MATCH COMPLETE</h2>
       <p id="gameover-desc">A perfect game was executed to logical termination.</p>
-      <button class="btn-cyber active" style="margin: 0 auto;" onclick="closeGameOverModal()">
-        <i class="fa-solid fa-rotate-left"></i> CLOSE DETAILS
+      <button class="btn-cyber active" onclick="closeGameOver()" style="width: 100%; justify-content: center;">
+        ACKNOWLEDGE
       </button>
     </div>
   </div>
 
-  <!-- SVGs Piece Outlines Library -->
+  <!-- Settings Popup Modal -->
+  <div class="modal-overlay" id="settings-overlay">
+    <div class="modal-cyber" style="width: 480px; max-width: 95%; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-icon"><i class="fa-solid fa-gear"></i></div>
+      <h2>UNIVERSAL SETTINGS</h2>
+      <p style="margin-bottom: 20px;">Configure your cyber-chess environment.</p>
+
+      <!-- Piece Set Picker -->
+      <div class="settings-section-title"><i class="fa-solid fa-chess-queen"></i>&nbsp; Piece Set</div>
+      <div class="piece-picker-grid" id="piece-picker">
+        <div onclick="setPieceSet('classic')" class="piece-preview-tile selected" id="piecetile-classic">
+          <svg viewBox="-2 -2 49 49" style="--piece-fill: var(--color-white-piece); color: var(--color-bg);">
+            <use href="#piece-queen-classic"></use>
+          </svg>
+          <span class="piece-set-name">Classic</span>
+        </div>
+        <div onclick="setPieceSet('alpha')" class="piece-preview-tile" id="piecetile-alpha">
+          <img src="assets/pieces/alpha/wN.svg" style="width: 100%; height: 100%; object-fit: contain;">
+          <span class="piece-set-name">Alpha</span>
+        </div>
+        <div onclick="setPieceSet('cburnett')" class="piece-preview-tile" id="piecetile-cburnett">
+          <img src="assets/pieces/cburnett/wN.svg" style="width: 100%; height: 100%; object-fit: contain;">
+          <span class="piece-set-name">Standard</span>
+        </div>
+        <div onclick="setPieceSet('chessnut')" class="piece-preview-tile" id="piecetile-chessnut">
+          <img src="assets/pieces/chessnut/wN.svg" style="width: 100%; height: 100%; object-fit: contain;">
+          <span class="piece-set-name">Chessnut</span>
+        </div>
+        <div onclick="setPieceSet('kosal')" class="piece-preview-tile" id="piecetile-kosal">
+          <img src="assets/pieces/kosal/wN.svg" style="width: 100%; height: 100%; object-fit: contain;">
+          <span class="piece-set-name">Kosal</span>
+        </div>
+      </div>
+
+      <!-- Board Style Picker -->
+      <div class="settings-section-title"><i class="fa-solid fa-chess-board"></i>&nbsp; Board Style</div>
+      <div class="board-picker-grid" id="board-picker">
+        <div style="">
+          <div onclick="setBoardStyle('cyber')" class="board-swatch selected" id="boardswatch-cyber"
+               style="--sw-light: #201a35; --sw-dark: #121020;">
+            <div class="sq dark"></div><div class="sq light"></div>
+            <div class="sq light"></div><div class="sq dark"></div>
+          </div>
+          <div class="board-swatch-label">Cyber</div>
+        </div>
+        <div>
+          <div onclick="setBoardStyle('green')" class="board-swatch" id="boardswatch-green"
+               style="--sw-light: #eeeed2; --sw-dark: #769656;">
+            <div class="sq dark"></div><div class="sq light"></div>
+            <div class="sq light"></div><div class="sq dark"></div>
+          </div>
+          <div class="board-swatch-label">Green</div>
+        </div>
+        <div>
+          <div onclick="setBoardStyle('walnut')" class="board-swatch" id="boardswatch-walnut"
+               style="--sw-light: #f0d9b5; --sw-dark: #b58863;">
+            <div class="sq dark"></div><div class="sq light"></div>
+            <div class="sq light"></div><div class="sq dark"></div>
+          </div>
+          <div class="board-swatch-label">Walnut</div>
+        </div>
+        <div>
+          <div onclick="setBoardStyle('slate')" class="board-swatch" id="boardswatch-slate"
+               style="--sw-light: #8ca2ad; --sw-dark: #3d5a6b;">
+            <div class="sq dark"></div><div class="sq light"></div>
+            <div class="sq light"></div><div class="sq dark"></div>
+          </div>
+          <div class="board-swatch-label">Slate</div>
+        </div>
+        <div>
+          <div onclick="setBoardStyle('midnight')" class="board-swatch" id="boardswatch-midnight"
+               style="--sw-light: #2a2a3a; --sw-dark: #0d0d16;">
+            <div class="sq dark"></div><div class="sq light"></div>
+            <div class="sq light"></div><div class="sq dark"></div>
+          </div>
+          <div class="board-swatch-label">Midnight</div>
+        </div>
+        <div>
+          <div onclick="setBoardStyle('coral')" class="board-swatch" id="boardswatch-coral"
+               style="--sw-light: #f5d0c8; --sw-dark: #c9786b;">
+            <div class="sq dark"></div><div class="sq light"></div>
+            <div class="sq light"></div><div class="sq dark"></div>
+          </div>
+          <div class="board-swatch-label">Coral</div>
+        </div>
+      </div>
+
+      <!-- Interface Theme -->
+      <div class="control-group" style="margin-bottom: 15px; text-align: left;">
+        <div class="settings-section-title"><i class="fa-solid fa-palette"></i>&nbsp; Interface Theme</div>
+        <select class="select-cyber" id="theme-select" onchange="changeTheme()" style="width: 100%;">
+          <option value="rave">NEON RAVE</option>
+          <option value="matrix">GREEN MATRIX</option>
+          <option value="retro">RETRO GOLD</option>
+          <option value="crimson">CRIMSON STEEL</option>
+          <option value="chesscom">CHESS.COM CLASSIC</option>
+        </select>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+        <button class="btn-cyber active" id="mute-btn-modal" onclick="toggleMute()" style="width: 100%; justify-content: center; padding: 12px;">
+          <i class="fa-solid fa-volume-high"></i> <span id="mute-text-modal">SOUND ON</span>
+        </button>
+        <button class="btn-cyber alt" id="flip-btn-modal" onclick="flipBoard()" style="width: 100%; justify-content: center; padding: 12px;">
+          <i class="fa-solid fa-rotate"></i> FLIP BOARD
+        </button>
+        <button class="btn-cyber alt" id="highlight-btn-modal" onclick="toggleHighlights()" style="width: 100%; justify-content: center; padding: 12px;">
+          <i class="fa-solid fa-eye"></i> <span id="highlight-text-modal">LEGAL MOVES: ON</span>
+        </button>
+      </div>
+
+      <button class="btn-cyber active" onclick="closeSettingsModal()" style="width: 100%; justify-content: center;">
+        SAVE &amp; CLOSE
+      </button>
+    </div>
+  </div>
+
+  <!-- SVGs Piece Library — All Sets -->
   <svg style="display: none;">
     <defs>
-      <!-- Standard Pieces (Used by both themes) -->
-      <g id="piece-pawn">
-        <path
-          d="m 22.5,9 c -2.21,0 -4,1.79 -4,4 0,0.89 0.29,1.71 0.78,2.38 C 17.33,16.5 16,18.59 16,21 c 0,2.03 0.94,3.84 2.41,5.03 C 15.41,27.09 11,31.58 11,39.5 H 34 C 34,31.58 29.59,27.09 26.59,26.03 28.06,24.84 29,23.03 29,21 29,18.59 27.67,16.5 25.72,15.38 26.21,14.71 26.5,13.89 26.5,13 c 0,-2.21 -1.79,-4 -4,-4 z"
+      <!-- ===== CLASSIC SET (Merida-style outlines) ===== -->
+      <g id="piece-pawn-classic">
+        <path d="m 22.5,9 c -2.21,0 -4,1.79 -4,4 0,0.89 0.29,1.71 0.78,2.38 C 17.33,16.5 16,18.59 16,21 c 0,2.03 0.94,3.84 2.41,5.03 C 15.41,27.09 11,31.58 11,39.5 H 34 C 34,31.58 29.59,27.09 26.59,26.03 28.06,24.84 29,23.03 29,21 29,18.59 27.67,16.5 25.72,15.38 26.21,14.71 26.5,13.89 26.5,13 c 0,-2.21 -1.79,-4 -4,-4 z"
           style="fill:var(--piece-fill); stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:miter;" />
       </g>
-      <g id="piece-knight">
-        <g style="fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;"
-          transform="translate(0,0.3)">
+      <g id="piece-knight-classic">
+        <g style="fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;" transform="translate(0,0.3)">
           <path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" style="fill:var(--piece-fill);" />
-          <path
-            d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10"
-            style="fill:var(--piece-fill);" />
+          <path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" style="fill:var(--piece-fill);" />
           <path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" style="fill:currentColor;" />
-          <path d="M 15 15.5 A 0.5 1.5 0 1 1  14,15.5 A 0.5 1.5 0 1 1  15 15.5 z"
-            transform="matrix(0.866,0.5,-0.5,0.866,9.693,-5.173)" style="fill:currentColor;" />
+          <path d="M 15 15.5 A 0.5 1.5 0 1 1  14,15.5 A 0.5 1.5 0 1 1  15 15.5 z" transform="matrix(0.866,0.5,-0.5,0.866,9.693,-5.173)" style="fill:currentColor;" />
         </g>
       </g>
-      <g id="piece-bishop">
-        <g style="fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;"
-          transform="translate(0,0.6)">
+      <g id="piece-bishop-classic">
+        <g style="fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;" transform="translate(0,0.6)">
           <g style="fill:var(--piece-fill); stroke-linecap:butt;">
-            <path
-              d="M 9,36 C 12.39,35.03 19.11,36.43 22.5,34 C 25.89,36.43 32.61,35.03 36,36 C 36,36 37.65,36.54 39,38 C 38.32,38.97 37.35,38.99 36,38.5 C 32.61,37.53 25.89,38.96 22.5,37.5 C 19.11,38.96 12.39,37.53 9,38.5 C 7.65,38.99 6.68,38.97 6,38 C 7.35,36.54 9,36 9,36 z" />
-            <path
-              d="M 15,32 C 17.5,34.5 27.5,34.5 30,32 C 30.5,30.5 30,30 30,30 C 30,27.5 27.5,26 27.5,26 C 33,24.5 33.5,14.5 22.5,10.5 C 11.5,14.5 12,24.5 17.5,26 C 17.5,26 15,27.5 15,30 C 15,30 14.5,30.5 15,32 z" />
+            <path d="M 9,36 C 12.39,35.03 19.11,36.43 22.5,34 C 25.89,36.43 32.61,35.03 36,36 C 36,36 37.65,36.54 39,38 C 38.32,38.97 37.35,38.99 36,38.5 C 32.61,37.53 25.89,38.96 22.5,37.5 C 19.11,38.96 12.39,37.53 9,38.5 C 7.65,38.99 6.68,38.97 6,38 C 7.35,36.54 9,36 9,36 z" />
+            <path d="M 15,32 C 17.5,34.5 27.5,34.5 30,32 C 30.5,30.5 30,30 30,30 C 30,27.5 27.5,26 27.5,26 C 33,24.5 33.5,14.5 22.5,10.5 C 11.5,14.5 12,24.5 17.5,26 C 17.5,26 15,27.5 15,30 C 15,30 14.5,30.5 15,32 z" />
             <path d="M 25 8 A 2.5 2.5 0 1 1  20,8 A 2.5 2.5 0 1 1  25 8 z" />
           </g>
-          <path d="M 17.5,26 L 27.5,26 M 15,30 L 30,30 M 22.5,15.5 L 22.5,20.5 M 20,18 L 25,18"
-            style="stroke-linejoin:miter;" />
+          <path d="M 17.5,26 L 27.5,26 M 15,30 L 30,30 M 22.5,15.5 L 22.5,20.5 M 20,18 L 25,18" style="stroke-linejoin:miter;" />
         </g>
       </g>
-      <g id="piece-rook">
-        <g style="fill:var(--piece-fill); stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;"
-          transform="translate(0,0.3)">
+      <g id="piece-rook-classic">
+        <g style="fill:var(--piece-fill); stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;" transform="translate(0,0.3)">
           <path d="M 9,39 L 36,39 L 36,36 L 9,36 L 9,39 z" style="stroke-linecap:butt;" />
           <path d="M 12,36 L 12,32 L 33,32 L 33,36 L 12,36 z" style="stroke-linecap:butt;" />
-          <path d="M 11,14 L 11,9 L 15,9 L 15,11 L 20,11 L 20,9 L 25,9 L 25,11 L 30,11 L 30,9 L 34,9 L 34,14"
-            style="stroke-linecap:butt;" />
+          <path d="M 11,14 L 11,9 L 15,9 L 15,11 L 20,11 L 20,9 L 25,9 L 25,11 L 30,11 L 30,9 L 34,9 L 34,14" style="stroke-linecap:butt;" />
           <path d="M 34,14 L 31,17 L 14,17 L 11,14" />
           <path d="M 31,17 L 31,29.5 L 14,29.5 L 14,17" style="stroke-linecap:butt; stroke-linejoin:miter;" />
           <path d="M 31,29.5 L 32.5,32 L 12.5,32 L 14,29.5" />
           <path d="M 11,14 L 34,14" style="fill:none; stroke-linejoin:miter;" />
         </g>
       </g>
-      <g id="piece-queen">
+      <g id="piece-queen-classic">
         <g style="fill:var(--piece-fill); stroke:currentColor; stroke-width:1.5; stroke-linejoin:round;">
-          <path
-            d="M 9,26 C 17.5,24.5 30,24.5 36,26 L 38.5,13.5 L 31,25 L 30.7,10.9 L 25.5,24.5 L 22.5,10 L 19.5,24.5 L 14.3,10.9 L 14,25 L 6.5,13.5 L 9,26 z" />
-          <path
-            d="M 9,26 C 9,28 10.5,28 11.5,30 C 12.5,31.5 12.5,31 12,33.5 C 10.5,34.5 11,36 11,36 C 9.5,37.5 11,38.5 11,38.5 C 17.5,39.5 27.5,39.5 34,38.5 C 34,38.5 35.5,37.5 34,36 C 34,36 34.5,34.5 33,33.5 C 32.5,31 32.5,31.5 33.5,30 C 34.5,28 36,28 36,26 C 27.5,24.5 17.5,24.5 9,26 z" />
+          <path d="M 9,26 C 17.5,24.5 30,24.5 36,26 L 38.5,13.5 L 31,25 L 30.7,10.9 L 25.5,24.5 L 22.5,10 L 19.5,24.5 L 14.3,10.9 L 14,25 L 6.5,13.5 L 9,26 z" />
+          <path d="M 9,26 C 9,28 10.5,28 11.5,30 C 12.5,31.5 12.5,31 12,33.5 C 10.5,34.5 11,36 11,36 C 9.5,37.5 11,38.5 11,38.5 C 17.5,39.5 27.5,39.5 34,38.5 C 34,38.5 35.5,37.5 34,36 C 34,36 34.5,34.5 33,33.5 C 32.5,31 32.5,31.5 33.5,30 C 34.5,28 36,28 36,26 C 27.5,24.5 17.5,24.5 9,26 z" />
           <path d="M 11.5,30 C 15,29 30,29 33.5,30" style="fill:none" />
           <path d="M 12,33.5 C 18,32.5 27,32.5 33,33.5" style="fill:none" />
           <circle cx="6" cy="12" r="2" />
@@ -782,16 +887,22 @@
           <circle cx="39" cy="12" r="2" />
         </g>
       </g>
-      <g id="piece-king">
+      <g id="piece-king-classic">
         <g style="fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:1.5;">
           <path stroke-linejoin="miter" d="M22.5 11.63V6M20 8h5" />
-          <path style="fill:var(--piece-fill);" stroke-linecap="butt" stroke-linejoin="miter"
-            d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" />
-          <path style="fill:var(--piece-fill);"
-            d="M12.5 37c5.5 3.5 14.5 3.5 20 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-2.5-7.5-12-10.5-16-4-3 6 6 10.5 6 10.5v7" />
+          <path style="fill:var(--piece-fill);" stroke-linecap="butt" stroke-linejoin="miter" d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" />
+          <path style="fill:var(--piece-fill);" d="M12.5 37c5.5 3.5 14.5 3.5 20 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-2.5-7.5-12-10.5-16-4-3 6 6 10.5 6 10.5v7" />
           <path d="M12.5 30c5.5-3 14.5-3 20 0m-20 3.5c5.5-3 14.5-3 20 0m-20 3.5c5.5-3 14.5-3 20 0" />
         </g>
       </g>
+
+      <!-- Active set aliases — swapped by JS -->
+      <g id="piece-pawn"><use href="#piece-pawn-classic"/></g>
+      <g id="piece-knight"><use href="#piece-knight-classic"/></g>
+      <g id="piece-bishop"><use href="#piece-bishop-classic"/></g>
+      <g id="piece-rook"><use href="#piece-rook-classic"/></g>
+      <g id="piece-queen"><use href="#piece-queen-classic"/></g>
+      <g id="piece-king"><use href="#piece-king-classic"/></g>
     </defs>
   </svg>
 

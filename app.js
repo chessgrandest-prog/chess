@@ -347,6 +347,7 @@ let timeBlack = 600;
 let timerInterval = null;
 let activePlayer = 'w';
 let isInfiniteTimer = false;
+let timerIncrement = 0; // seconds added per move
 
 // -------------------------------------------------------------------------
 // NEW ADVANCED TACTICAL PUZZLES SOLVER ENGINE
@@ -381,11 +382,164 @@ const canvas = document.getElementById('particles-canvas');
 const ctxCanvas = canvas.getContext('2d');
 
 // -------------------------------------------------------------------------
-// NOTATION HISTORY TRACKING
+// NOTATION HISTORY TRACKING (WITH MOVE TREE VARIATIONS SUPPORT)
 // -------------------------------------------------------------------------
 let notationHistory = [];
 let currentNotationIndex = -1;
 let isReviewingHistory = false;
+
+// Move Tree Structures
+let moveTreeRoot = { id: 'root', move: null, fen: null, parent: null, children: [] };
+let activeNode = moveTreeRoot;
+let nodeIdCounter = 0;
+
+function initMoveTree(initialFen) {
+  nodeIdCounter = 0;
+  moveTreeRoot = {
+    id: 'root',
+    move: null,
+    fen: initialFen || game.fen(),
+    parent: null,
+    children: []
+  };
+  activeNode = moveTreeRoot;
+}
+
+function addMoveToTree(move, fen) {
+  // Check if this move already exists as a child of activeNode
+  let existingChild = activeNode.children.find(child => 
+    child.move.from === move.from && 
+    child.move.to === move.to && 
+    child.move.promotion === (move.promotion || undefined)
+  );
+  
+  if (existingChild) {
+    activeNode = existingChild;
+  } else {
+    const newNode = {
+      id: 'node_' + (++nodeIdCounter),
+      move: move,
+      fen: fen,
+      parent: activeNode,
+      children: []
+    };
+    activeNode.children.push(newNode);
+    activeNode = newNode;
+  }
+}
+
+function getSelectedChildOfVariation(node) {
+  if (!node.children || node.children.length === 0) return null;
+  for (const child of node.children) {
+    if (isAncestorOf(child, activeNode)) {
+      return child;
+    }
+  }
+  return node.children[0];
+}
+
+function isAncestorOf(child, target) {
+  let curr = target;
+  while (curr) {
+    if (curr === child) return true;
+    curr = curr.parent;
+  }
+  return false;
+}
+
+function getActiveLine(root, active) {
+  const activePath = [];
+  let curr = active;
+  while (curr && curr !== root) {
+    activePath.unshift(curr);
+    curr = curr.parent;
+  }
+  
+  const line = [];
+  curr = root;
+  while (true) {
+    if (!curr.children || curr.children.length === 0) break;
+    
+    let nextNode = null;
+    for (const child of curr.children) {
+      if (activePath.includes(child)) {
+        nextNode = child;
+        break;
+      }
+    }
+    
+    if (!nextNode) {
+      nextNode = curr.children[0];
+    }
+    
+    line.push(nextNode);
+    curr = nextNode;
+  }
+  return line;
+}
+
+function findNodeById(currNode, id) {
+  if (currNode.id === id) return currNode;
+  for (const child of currNode.children) {
+    const found = findNodeById(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function getStartingMoveNumber() {
+  const fen = moveTreeRoot.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const parts = fen.split(' ');
+  const num = parseInt(parts[parts.length - 1], 10);
+  return isNaN(num) ? 1 : num;
+}
+
+function getMoveNumber(node) {
+  if (node.move.color === 'w') {
+    const parts = node.fen.split(' ');
+    return parseInt(parts[parts.length - 1], 10);
+  } else {
+    const parentFen = node.parent ? node.parent.fen : moveTreeRoot.fen;
+    const parts = parentFen.split(' ');
+    return parseInt(parts[parts.length - 1], 10);
+  }
+}
+
+function buildTreeFromFlatHistory(moves, initialFen) {
+  initMoveTree(initialFen);
+  const tempGame = new Chess(initialFen);
+  for (const move of moves) {
+    const finishedMove = tempGame.move(move);
+    if (finishedMove) {
+      addMoveToTree(finishedMove, tempGame.fen());
+    }
+  }
+  isReviewingHistory = false;
+}
+
+function isOnMainLine(node) {
+  let curr = node;
+  while (curr && curr !== moveTreeRoot) {
+    const parent = curr.parent;
+    if (!parent || parent.children[0] !== curr) return false;
+    curr = parent;
+  }
+  return true;
+}
+
+function getMainLineLeaf() {
+  let curr = moveTreeRoot;
+  while (curr.children.length > 0) {
+    curr = curr.children[0];
+  }
+  return curr;
+}
+
+function computeIsReviewing(node) {
+  // We're reviewing if not at the leaf of the main line
+  const mainLeaf = getMainLineLeaf();
+  return node !== mainLeaf;
+}
 
 // On load hooks
 window.addEventListener('load', () => {
@@ -833,6 +987,7 @@ function initializePuzzleState(puzzle) {
 
   // Set up board game state
   game = new Chess(puzzle.fen);
+  initMoveTree(puzzle.fen);
 
   if (puzzle.moves && puzzle.moves.length > 0) {
     // -------------------------------------------------------------
@@ -846,11 +1001,14 @@ function initializePuzzleState(puzzle) {
     // Execute opponent's setup move!
     const setupMoveStr = puzzle.moves[0];
     const setupUci = parseUCIMove(setupMoveStr);
-    game.move({
+    const finishedMove = game.move({
       from: setupUci.from,
       to: setupUci.to,
       promotion: setupUci.promotion
     });
+    if (finishedMove) {
+      addMoveToTree(finishedMove, game.fen());
+    }
 
     currentPuzzle.solution = puzzle.moves.slice(1);
     currentPuzzle.lastMove = setupMoveStr;
@@ -1233,6 +1391,113 @@ function toggleAnalysisMode() {
   }
 }
 
+function openSettingsModal() {
+  const modal = document.getElementById('settings-overlay');
+  if (modal) modal.classList.add('active');
+}
+
+function closeSettingsModal() {
+  const modal = document.getElementById('settings-overlay');
+  if (modal) modal.classList.remove('active');
+}
+
+function toggleHighlights() {
+  showLegalMoves = !showLegalMoves;
+  const btn = document.getElementById('highlight-btn-modal');
+  const txt = document.getElementById('highlight-text-modal');
+  if (btn && txt) {
+    if (showLegalMoves) {
+      btn.classList.add('active');
+      btn.classList.remove('alt');
+      txt.innerText = 'LEGAL MOVES: ON';
+    } else {
+      btn.classList.remove('active');
+      btn.classList.add('alt');
+      txt.innerText = 'LEGAL MOVES: OFF';
+    }
+  }
+  // If we just toggled it and we have a selected square, redraw board highlights by clearing them or rendering board
+  if (selectedSquare) {
+    renderBoard();
+  }
+}
+
+// =========================================================================
+// PIECE SET & BOARD STYLE CUSTOMIZATION
+// =========================================================================
+
+let currentPieceSet = localStorage.getItem('pieceSet') || 'classic';
+let currentBoardStyle = localStorage.getItem('boardStyle') || 'cyber';
+
+const PIECE_NAMES = ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
+
+function setPieceSet(setName) {
+  currentPieceSet = setName;
+  localStorage.setItem('pieceSet', setName);
+
+  // If using inline SVG aliases, swap them
+  if (['classic', 'minimal', 'neo'].includes(setName)) {
+    for (const name of PIECE_NAMES) {
+      const alias = document.getElementById(`piece-${name}`);
+      if (alias) {
+        alias.innerHTML = `<use href="#piece-${name}-${setName}"/>`;
+      }
+    }
+  }
+
+  // Update picker UI selection state
+  document.querySelectorAll('.piece-preview-tile').forEach(el => el.classList.remove('selected'));
+  const tile = document.getElementById(`piecetile-${setName}`);
+  if (tile) tile.classList.add('selected');
+
+  // Re-render so pieces update immediately
+  renderBoard();
+  updateCapturedPieces();
+  writeLog(`Piece set changed to ${setName.toUpperCase()}.`);
+}
+
+function setBoardStyle(styleName) {
+  currentBoardStyle = styleName;
+  localStorage.setItem('boardStyle', styleName);
+
+  // Apply or remove the data-board attribute
+  if (styleName === 'cyber') {
+    document.documentElement.removeAttribute('data-board');
+  } else {
+    document.documentElement.setAttribute('data-board', styleName);
+  }
+
+  // Update picker UI selection state
+  document.querySelectorAll('.board-swatch').forEach(el => el.classList.remove('selected'));
+  const swatch = document.getElementById(`boardswatch-${styleName}`);
+  if (swatch) swatch.classList.add('selected');
+
+  // Re-render board so tile colors update
+  renderBoard();
+  writeLog(`Board style changed to ${styleName.toUpperCase()}.`);
+}
+
+function applyStoredCustomizations() {
+  // Apply piece set
+  if (currentPieceSet && currentPieceSet !== 'classic') {
+    setPieceSet(currentPieceSet);
+  } else {
+    // Ensure UI state shows classic as selected
+    document.querySelectorAll('.piece-preview-tile').forEach(el => el.classList.remove('selected'));
+    const tile = document.getElementById('piecetile-classic');
+    if (tile) tile.classList.add('selected');
+  }
+  // Apply board style
+  if (currentBoardStyle && currentBoardStyle !== 'cyber') {
+    setBoardStyle(currentBoardStyle);
+  } else {
+    document.querySelectorAll('.board-swatch').forEach(el => el.classList.remove('selected'));
+    const swatch = document.getElementById('boardswatch-cyber');
+    if (swatch) swatch.classList.add('selected');
+  }
+}
+
+
 // -------------------------------------------------------------------------
 // STANDARD VS AI & PVP GAMEPLAY HANDLERS
 // -------------------------------------------------------------------------
@@ -1246,16 +1511,20 @@ function resetClocks() {
 
   if (timerVal === 'infinite') {
     isInfiniteTimer = true;
+    timerIncrement = 0;
     if (whiteClock) whiteClock.innerText = "∞";
     if (blackClock) blackClock.innerText = "∞";
     writeLog("Timer Disabled: Playing with infinite thinking time.");
   } else {
     isInfiniteTimer = false;
-    const mins = parseInt(timerVal);
-    timeWhite = mins * 60;
-    timeBlack = mins * 60;
+    const parts = timerVal.split('+');
+    const mins = parseFloat(parts[0]);
+    timerIncrement = parts.length > 1 ? parseInt(parts[1]) : 0;
+    timeWhite = Math.ceil(mins * 60);
+    timeBlack = Math.ceil(mins * 60);
     updateClockDisplay();
-    writeLog(`Timer initialized for ${mins} minutes per side.`);
+    const incLabel = timerIncrement > 0 ? ` + ${timerIncrement}s/move` : '';
+    writeLog(`Timer initialized for ${mins} minutes per side${incLabel}.`);
   }
 }
 
@@ -1567,6 +1836,7 @@ function resetGame() {
   }
 
   game = new Chess();
+  initMoveTree(game.fen());
   selectedSquare = null;
   possibleMoves = [];
   isAITurn = false;
@@ -1732,11 +2002,18 @@ function renderBoard() {
 
       const colorClass = piece.color === 'w' ? 'piece-white' : 'piece-black';
 
-      pieceContainer.innerHTML = `
-        <svg class="chess-piece ${colorClass}" viewBox="-2 -2 49 49">
-          <use href="#piece-${getPieceName(piece.type)}"></use>
-        </svg>
-      `;
+      if (['classic', 'minimal', 'neo'].includes(currentPieceSet)) {
+        pieceContainer.innerHTML = `
+          <svg class="chess-piece ${colorClass}" viewBox="-2 -2 49 49">
+            <use href="#piece-${getPieceName(piece.type)}"></use>
+          </svg>
+        `;
+      } else {
+        const pieceFileName = piece.color + piece.type.toUpperCase() + '.svg';
+        pieceContainer.innerHTML = `
+          <img class="chess-piece ${colorClass}" src="assets/pieces/${currentPieceSet}/${pieceFileName}" draggable="false" style="width:100%; height:100%; object-fit: contain;">
+        `;
+      }
 
       pieceContainer.addEventListener('pointerdown', onPointerDown);
       tile.appendChild(pieceContainer);
@@ -1801,11 +2078,20 @@ function updateCapturedPieces() {
 
   const renderCaptured = (list, color) => {
     const colorClass = color === 'w' ? 'piece-white' : 'piece-black';
-    return list.map(type => `
-      <svg class="captured-icon ${colorClass}" viewBox="-2 -2 49 49" style="width: 18px; height: 18px; margin-right: 2px;">
-        <use href="#piece-${getPieceName(type)}"></use>
-      </svg>
-    `).join('');
+    return list.map(type => {
+      if (['classic', 'minimal', 'neo'].includes(currentPieceSet)) {
+        return `
+          <svg class="captured-icon ${colorClass}" viewBox="-2 -2 49 49" style="width: 18px; height: 18px; margin-right: 2px;">
+            <use href="#piece-${getPieceName(type)}"></use>
+          </svg>
+        `;
+      } else {
+        const pieceFileName = color + type.toUpperCase() + '.svg';
+        return `
+          <img class="captured-icon ${colorClass}" src="assets/pieces/${currentPieceSet}/${pieceFileName}" draggable="false" style="width: 18px; height: 18px; margin-right: 2px; object-fit: contain;">
+        `;
+      }
+    }).join('');
   };
 
   const capWhite = document.getElementById('captured-by-white');
@@ -1828,8 +2114,8 @@ function onTileClick(square) {
   
   if (isAITurn) return;
 
-  // Online mode: block moves when it is not our color's turn
-  if (window._onlineMode && game.turn() !== window._onlineColor) return;
+  // Online mode: block moves when it is not our color's turn (but allow when reviewing history)
+  if (window._onlineMode && game.turn() !== window._onlineColor && !isReviewingHistory) return;
 
   const piece = game.get(square);
 
@@ -1858,7 +2144,8 @@ function onPointerDown(e) {
     notationGoTo(currentNotationIndex);
   }
   
-  if (window._onlineMode && game.turn() !== window._onlineColor) return;
+  // Online mode: block moves when not our turn (but allow when reviewing history)
+  if (window._onlineMode && game.turn() !== window._onlineColor && !isReviewingHistory) return;
   if (e.button !== 0) return; // Only drag pieces with left-click!
   e.stopPropagation();
   e.preventDefault();
@@ -1955,13 +2242,9 @@ function executePlayerMove(moveDetails) {
   selectedSquare = null;
   possibleMoves = [];
 
-  // Exit review mode when making a new move from history position
-  if (isReviewingHistory) {
-    // Truncate history at current position and add new move here
-    notationHistory = notationHistory.slice(0, currentNotationIndex + 1);
-    isReviewingHistory = false;
-    updateReviewBanner();
-  }
+  // When reviewing history, stay in review mode — the variation move
+  // is local exploration and should not affect the real game state.
+  // isReviewingHistory remains true; onMoveExecuted will skip side effects.
 
   if (typeof clearDrawingOverlay === 'function') {
     clearDrawingOverlay();
@@ -2094,11 +2377,30 @@ function promptPromotion(moveDetails, callback) {
 function onMoveExecuted(move) {
   if (!move) return;
 
+  addMoveToTree(move, game.fen());
+
   if (move.captured) {
     soundCtrl.play('capture');
     spawnParticles(move.to);
   } else {
     soundCtrl.play('move');
+  }
+
+  // If reviewing history, this is a variation/exploration move.
+  // Skip all game-progression side effects (timer, AI, online, game-over).
+  if (isReviewingHistory) {
+    renderBoard();
+    updateNotation();
+    return;
+  }
+
+  // Apply per-move increment to the player who just moved
+  if (timerIncrement > 0 && !isInfiniteTimer) {
+    if (move.color === 'w') {
+      timeWhite += timerIncrement;
+    } else {
+      timeBlack += timerIncrement;
+    }
   }
 
   startTimer();
@@ -2853,9 +3155,6 @@ function switchSidebarTab(tabName) {
     } else if (tabName === 'analysis') {
       iconClass = 'fa-magnifying-glass-chart';
       label = 'ANALYSIS ENGINE';
-    } else if (tabName === 'actions') {
-      iconClass = 'fa-gamepad';
-      label = 'QUICK ACTIONS';
     }
     titleText.innerHTML = `<i class="fa-solid ${iconClass}"></i> ${label}`;
   }
@@ -2896,14 +3195,12 @@ function switchSidebarTab(tabName) {
 
 function selectGameModeTab(modeName) {
   isTabSwitchingInProgress = true;
-  if (modeName !== 'actions') {
-    const hiddenSelect = document.getElementById('game-mode');
-    if (hiddenSelect) {
-      hiddenSelect.value = modeName;
-    }
-    if (typeof onGameModeChange === 'function') {
-      onGameModeChange();
-    }
+  const hiddenSelect = document.getElementById('game-mode');
+  if (hiddenSelect) {
+    hiddenSelect.value = modeName;
+  }
+  if (typeof onGameModeChange === 'function') {
+    onGameModeChange();
   }
   isTabSwitchingInProgress = false;
 
@@ -3946,20 +4243,20 @@ function loadGameFromHistory(gameRecord) {
     return;
   }
   
-  // Reset game and replay moves
+  // Replay moves and build tree
+  buildTreeFromFlatHistory(gameRecord.moves, gameRecord.fen || undefined);
+  
+  // Update game instance to match the final position
   const tempGame = new Chess();
   for (const move of gameRecord.moves) {
     tempGame.move(move);
   }
   game = tempGame;
-  notationHistory = gameRecord.moves;
-  currentNotationIndex = notationHistory.length - 1;
-  isReviewingHistory = false;
   
   // Switch to analysis mode for replay
   selectGameModeTab('analysis');
   renderBoard();
-  renderNotation();
+  updateNotation();
   showNotification('Game loaded for review', 'success');
 }
 
@@ -4244,69 +4541,193 @@ async function saveProfileCustomization() {
 // =========================================================================
 
 function updateNotation() {
-  const history = game.history({ verbose: true });
-  notationHistory = history;
-  
-  // If we're not reviewing, always stay at the latest move
-  if (!isReviewingHistory) {
-    currentNotationIndex = history.length - 1;
-  }
+  const activeLine = getActiveLine(moveTreeRoot, activeNode);
+  notationHistory = activeLine.map(node => node.move);
+  currentNotationIndex = activeLine.indexOf(activeNode);
   
   renderNotation();
   updateReviewBanner();
+}
+
+function renderVariationNode(curr, isStartOfLine) {
+  let html = '';
+  const moveNum = getMoveNumber(curr);
+  const isWhite = (curr.move.color === 'w');
+  const isActive = (curr === activeNode);
+  
+  if (isWhite) {
+    if (isStartOfLine) {
+      html += `<span class="var-move-num">${moveNum}.</span> `;
+    } else {
+      html += ` <span class="var-move-num">${moveNum}.</span> `;
+    }
+    html += `<span class="var-move ${isActive ? 'active' : ''}" onclick="notationGoToNode('${curr.id}')">${curr.move.san}</span>`;
+  } else {
+    if (isStartOfLine) {
+      html += `<span class="var-move-num">${moveNum}. ...</span> `;
+    } else {
+      html += ' ';
+    }
+    html += `<span class="var-move ${isActive ? 'active' : ''}" onclick="notationGoToNode('${curr.id}')">${curr.move.san}</span>`;
+  }
+  
+  const selectedChild = curr.children && curr.children.length > 0 ? curr.children[0] : null;
+  if (selectedChild) {
+    html += renderVariationNode(selectedChild, false);
+    
+    for (const child of curr.children) {
+      if (child !== selectedChild) {
+        html += `<div class="notation-variation-block"><div class="notation-variation-line">`;
+        html += renderVariationNode(child, true);
+        html += `</div></div>`;
+      }
+    }
+  }
+  return html;
 }
 
 function renderNotation() {
   const moveList = document.getElementById('notation-move-list');
   if (!moveList) return;
   
-  const history = notationHistory;
+  const mainLine = [];
+  let currNode = moveTreeRoot;
+  while (currNode.children && currNode.children.length > 0) {
+    mainLine.push(currNode.children[0]);
+    currNode = currNode.children[0];
+  }
   
-  if (history.length === 0) {
+  if (mainLine.length === 0) {
     moveList.innerHTML = '<div class="notation-empty-state">No moves yet</div>';
-    document.getElementById('notation-result-display').innerHTML = '';
+    const resultDisplay = document.getElementById('notation-result-display');
+    if (resultDisplay) resultDisplay.innerHTML = '';
     return;
   }
   
   let html = '';
-  
-  // Group moves in pairs (white + black)
-  for (let i = 0; i < history.length; i += 2) {
-    const moveNum = Math.floor(i / 2) + 1;
-    const whiteMove = history[i];
-    const blackMove = history[i + 1];
+  let i = 0;
+  while (i < mainLine.length) {
+    const node = mainLine[i];
+    const moveNum = getMoveNumber(node);
+    const isWhite = (node.move.color === 'w');
     
-    html += `<div class="notation-row ${i === currentNotationIndex || (i + 1) === currentNotationIndex ? 'current' : ''}">`;
-    html += `<div class="notation-move-num">${moveNum}.</div>`;
-    
-    // White move
-    if (whiteMove) {
-      const isActive = i === currentNotationIndex;
-      html += `<div class="notation-move ${isActive ? 'active' : ''}" onclick="notationGoTo(${i})">${whiteMove.san}</div>`;
+    if (isWhite) {
+      const nextNode = mainLine[i + 1];
+      const hasBlackMove = nextNode && nextNode.move.color === 'b';
+      
+      const siblings = node.parent ? node.parent.children : [];
+      const hasVariations = siblings.length > 1;
+      
+      if (hasVariations) {
+        const isCurrent = (node === activeNode);
+        html += `<div class="notation-row ${isCurrent ? 'current' : ''}">`;
+        html += `<div class="notation-move-num">${moveNum}.</div>`;
+        html += `<div class="notation-move ${isCurrent ? 'active' : ''}" onclick="notationGoToNode('${node.id}')">${node.move.san}</div>`;
+        html += `<div class="notation-move empty">...</div>`;
+        html += `</div>`;
+        
+        for (const sibling of siblings) {
+          if (sibling !== node) {
+            html += `<div class="notation-variation-block"><div class="notation-variation-line">`;
+            html += renderVariationNode(sibling, true);
+            html += `</div></div>`;
+          }
+        }
+        
+        if (hasBlackMove) {
+          const isBlackCurrent = (nextNode === activeNode);
+          html += `<div class="notation-row ${isBlackCurrent ? 'current' : ''}">`;
+          html += `<div class="notation-move-num">${moveNum}.</div>`;
+          html += `<div class="notation-move empty">...</div>`;
+          html += `<div class="notation-move ${isBlackCurrent ? 'active' : ''}" onclick="notationGoToNode('${nextNode.id}')">${nextNode.move.san}</div>`;
+          html += `</div>`;
+          
+          const blackSiblings = nextNode.parent ? nextNode.parent.children : [];
+          if (blackSiblings.length > 1) {
+            for (const blackSibling of blackSiblings) {
+              if (blackSibling !== nextNode) {
+                html += `<div class="notation-variation-block"><div class="notation-variation-line">`;
+                html += renderVariationNode(blackSibling, true);
+                html += `</div></div>`;
+              }
+            }
+          }
+        }
+        i += 2;
+      } else {
+        if (hasBlackMove) {
+          const blackSiblings = nextNode.parent ? nextNode.parent.children : [];
+          const blackHasVariations = blackSiblings.length > 1;
+          
+          if (blackHasVariations) {
+            const isWhiteCurrent = (node === activeNode);
+            const isBlackCurrent = (nextNode === activeNode);
+            html += `<div class="notation-row ${isWhiteCurrent || isBlackCurrent ? 'current' : ''}">`;
+            html += `<div class="notation-move-num">${moveNum}.</div>`;
+            html += `<div class="notation-move ${isWhiteCurrent ? 'active' : ''}" onclick="notationGoToNode('${node.id}')">${node.move.san}</div>`;
+            html += `<div class="notation-move ${isBlackCurrent ? 'active' : ''}" onclick="notationGoToNode('${nextNode.id}')">${nextNode.move.san}</div>`;
+            html += `</div>`;
+            
+            for (const blackSibling of blackSiblings) {
+              if (blackSibling !== nextNode) {
+                html += `<div class="notation-variation-block"><div class="notation-variation-line">`;
+                html += renderVariationNode(blackSibling, true);
+                html += `</div></div>`;
+              }
+            }
+          } else {
+            const isWhiteCurrent = (node === activeNode);
+            const isBlackCurrent = (nextNode === activeNode);
+            html += `<div class="notation-row ${isWhiteCurrent || isBlackCurrent ? 'current' : ''}">`;
+            html += `<div class="notation-move-num">${moveNum}.</div>`;
+            html += `<div class="notation-move ${isWhiteCurrent ? 'active' : ''}" onclick="notationGoToNode('${node.id}')">${node.move.san}</div>`;
+            html += `<div class="notation-move ${isBlackCurrent ? 'active' : ''}" onclick="notationGoToNode('${nextNode.id}')">${nextNode.move.san}</div>`;
+            html += `</div>`;
+          }
+        } else {
+          const isWhiteCurrent = (node === activeNode);
+          html += `<div class="notation-row ${isWhiteCurrent ? 'current' : ''}">`;
+          html += `<div class="notation-move-num">${moveNum}.</div>`;
+          html += `<div class="notation-move ${isWhiteCurrent ? 'active' : ''}" onclick="notationGoToNode('${node.id}')">${node.move.san}</div>`;
+          html += `<div class="notation-move empty"></div>`;
+          html += `</div>`;
+        }
+        i += 2;
+      }
     } else {
-      html += `<div class="notation-move empty"></div>`;
+      const isCurrent = (node === activeNode);
+      html += `<div class="notation-row ${isCurrent ? 'current' : ''}">`;
+      html += `<div class="notation-move-num">${moveNum}.</div>`;
+      html += `<div class="notation-move empty">...</div>`;
+      html += `<div class="notation-move ${isCurrent ? 'active' : ''}" onclick="notationGoToNode('${node.id}')">${node.move.san}</div>`;
+      html += `</div>`;
+      
+      const siblings = node.parent ? node.parent.children : [];
+      if (siblings.length > 1) {
+        for (const sibling of siblings) {
+          if (sibling !== node) {
+            html += `<div class="notation-variation-block"><div class="notation-variation-line">`;
+            html += renderVariationNode(sibling, true);
+            html += `</div></div>`;
+          }
+        }
+      }
+      i += 1;
     }
-    
-    // Black move
-    if (blackMove) {
-      const isActive = (i + 1) === currentNotationIndex;
-      html += `<div class="notation-move ${isActive ? 'active' : ''}" onclick="notationGoTo(${i + 1})">${blackMove.san}</div>`;
-    } else {
-      html += `<div class="notation-move empty"></div>`;
-    }
-    
-    html += '</div>';
   }
   
   moveList.innerHTML = html;
   
-  // Scroll to current move
   const currentRow = moveList.querySelector('.notation-row.current');
   if (currentRow) {
     currentRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else {
+    const currentVarMove = moveList.querySelector('.var-move.active');
+    if (currentVarMove) {
+      currentVarMove.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   }
   
-  // Update result display
   updateResultDisplay();
 }
 
@@ -4345,62 +4766,62 @@ function updateResultDisplay() {
 }
 
 function notationGoTo(index) {
-  if (index < -1 || index >= notationHistory.length) return;
+  const activeLine = getActiveLine(moveTreeRoot, activeNode);
+  if (index < -1 || index >= activeLine.length) return;
   
-  // Create a new game instance and replay moves up to index
-  const tempGame = new Chess();
-  
-  for (let i = 0; i <= index; i++) {
-    const move = notationHistory[i];
-    tempGame.move(move);
+  if (index === -1) {
+    activeNode = moveTreeRoot;
+  } else {
+    activeNode = activeLine[index];
   }
   
-  // Replace the current game with the temp game
-  game = tempGame;
-  currentNotationIndex = index;
-  isReviewingHistory = (index < notationHistory.length - 1);
+  const fenToLoad = activeNode.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  game.load(fenToLoad);
+  isReviewingHistory = computeIsReviewing(activeNode);
   
   renderBoard();
-  renderNotation();
-  updateReviewBanner();
+  updateNotation();
   
-  // Update clocks display based on whose turn it is
+  activePlayer = game.turn();
+  updateClockDisplay();
+}
+
+function notationGoToNode(nodeId) {
+  const node = findNodeById(moveTreeRoot, nodeId);
+  if (!node) return;
+  
+  activeNode = node;
+  const fenToLoad = activeNode.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  game.load(fenToLoad);
+  
+  isReviewingHistory = computeIsReviewing(activeNode);
+  
+  renderBoard();
+  updateNotation();
+  
   activePlayer = game.turn();
   updateClockDisplay();
 }
 
 function notationStepBack() {
-  if (currentNotationIndex < 0) return;
-  notationGoTo(currentNotationIndex - 1);
+  if (!activeNode || activeNode === moveTreeRoot) return;
+  notationGoToNode(activeNode.parent.id);
 }
 
 function notationStepForward() {
-  if (currentNotationIndex >= notationHistory.length - 1) {
-    // If at the end, exit review mode
-    notationGoToEnd();
-    return;
+  const nextNode = getSelectedChildOfVariation(activeNode);
+  if (nextNode) {
+    notationGoToNode(nextNode.id);
   }
-  notationGoTo(currentNotationIndex + 1);
 }
 
 function notationGoToEnd() {
-  // Replay all moves to get to the latest state
-  const tempGame = new Chess();
-  
-  for (const move of notationHistory) {
-    tempGame.move(move);
+  // Jump to the leaf of the main line (the "real" game position),
+  // exiting review mode and returning to the live game state.
+  const mainLeaf = getMainLineLeaf();
+  if (mainLeaf && mainLeaf !== activeNode) {
+    notationGoToNode(mainLeaf.id);
   }
-  
-  game = tempGame;
-  currentNotationIndex = notationHistory.length - 1;
-  isReviewingHistory = false;
-  
-  renderBoard();
-  renderNotation();
-  updateReviewBanner();
-  
-  activePlayer = game.turn();
-  updateClockDisplay();
 }
 
 function updateReviewBanner() {
